@@ -1,4 +1,9 @@
-/* ui_session.h — ③ 会话页：单会话全屏 + 右滑/左滑切会话 + 上下滑翻内容 */
+/* ui_session.h — ③ 会话页（单会话一页）
+ *
+ * Route A 重构：会话不再是「一个视图内切换」，而是每个会话渲染成一张独立的
+ * 466×466 页，交给 ui_nav 的横向 snap pager 平铺管理。本模块只负责「按索引
+ * 建一页会话」，导航（左右翻会话 / 到边界回主页）全部由 pager 用原生滚动完成。
+ */
 #ifndef UI_SESSION_H
 #define UI_SESSION_H
 
@@ -8,15 +13,12 @@
 extern "C" {
 #endif
 
-lv_obj_t *ui_session_create(lv_obj_t *parent);
+/* 建一张会话页（第 index 个会话，0 = 最近）。父为 pager 的某个 page 容器。
+ * 返回 466×466 根对象。 */
+lv_obj_t *ui_session_create_page(lv_obj_t *parent, int index);
 
-/* 切到下一个 / 上一个会话（循环）。返回切换后的索引；
- * prev 在第 0 个会话再左滑时返回 -1（表示应回主页）。 */
-int ui_session_next(void);
-int ui_session_prev(void);
-
-/* 定位到「最近会话」（索引 0）并刷新 */
-void ui_session_reset(void);
+/* 将指定会话页的滚动重置到顶部 */
+void ui_session_scroll_top(lv_obj_t *page);
 
 #ifdef __cplusplus
 }

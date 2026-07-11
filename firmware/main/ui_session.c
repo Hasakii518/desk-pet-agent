@@ -1,18 +1,17 @@
-/* ui_session.c — ③ 会话页 */
+/* ui_session.c — ③ 会话页（单会话一页）
+ *
+ * 每个会话渲染成一张 466×466 页：来源色点 + 名 + 时间、最新回复、下一步 pill、
+ * 历史消息。页内纵向可滚动翻看长内容；横向翻会话由外层 pager 负责。
+ */
 #include "ui_session.h"
 #include "ui_common.h"
 #include "mock_data.h"
 
-/* 会话页专用字号：比全局 T 字号小一档，保证一屏能放下更多历史，
- * 且落在圆形安全区内（全局 T 已整体放大，这里不复用以免溢出圆屏）。 */
+/* 会话页专用字号：比全局 T 字号小一档，保证一屏放得下更多历史，且落在圆内。 */
 #define SESS_FONT_NAME  (&lv_font_montserrat_24)
 #define SESS_FONT_BODY  (&lv_font_montserrat_16)
 #define SESS_FONT_SMALL (&lv_font_montserrat_14)
 #define SESS_W          300   /* 内容宽度，居中落在圆内 */
-
-static lv_obj_t *s_root;
-static lv_obj_t *s_content;   /* 可滚动内容容器 */
-static int       s_index;     /* 当前会话索引 */
 
 static lv_obj_t *divider(lv_obj_t *parent)
 {
@@ -35,14 +34,36 @@ static lv_obj_t *body_label(lv_obj_t *parent, const char *txt, const lv_font_t *
     return l;
 }
 
-/* 依据 s_index 重建内容 */
-static void rebuild(void)
+lv_obj_t *ui_session_create_page(lv_obj_t *parent, int index)
 {
-    const mock_session_t *ss = &mock_sessions()[s_index];
-    lv_obj_clean(s_content);
+    const mock_session_t *ss = &mock_sessions()[index];
+
+    /* 页根：满屏、纯黑、不可滚（滚动交给内部 content）*/
+    lv_obj_t *root = lv_obj_create(parent);
+    lv_obj_remove_style_all(root);
+    lv_obj_set_size(root, SCREEN_SIZE, SCREEN_SIZE);
+    lv_obj_set_style_bg_color(root, COLOR_VOID, 0);
+    lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* 可滚动内容（上下滑翻页），落在安全圆内。
+     * 只允许纵向滚动；横向不消费，靠 SCROLL_CHAIN_HOR（默认开）把横滑冒泡给
+     * 外层 pager 翻会话——即使按在文字/标签上，也能横向翻页。
+     * content 句柄存到 root 的 user_data，供 ui_session_scroll_top() 使用。 */
+    lv_obj_t *content = lv_obj_create(root);
+    lv_obj_set_user_data(root, content);
+    lv_obj_remove_style_all(content);
+    lv_obj_set_size(content, 340, SCREEN_SIZE - 2 * (EDGE_SAFE + 20));
+    lv_obj_center(content);
+    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(content, SP_SM, 0);
+    lv_obj_set_scroll_dir(content, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_add_flag(content, LV_OBJ_FLAG_SCROLL_CHAIN_HOR);
 
     /* 顶部：来源色点 + 名 + 时间 */
-    lv_obj_t *head = lv_obj_create(s_content);
+    lv_obj_t *head = lv_obj_create(content);
     lv_obj_remove_style_all(head);
     lv_obj_set_size(head, SESS_W, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(head, LV_FLEX_FLOW_ROW);
@@ -67,17 +88,17 @@ static void rebuild(void)
     lv_obj_set_style_text_color(time, COLOR_MIST, 0);
     lv_obj_set_style_text_opa(time, LV_OPA_40, 0);
 
-    divider(s_content);
+    divider(content);
 
     /* 最新回复 */
-    body_label(s_content, "Latest reply:", SESS_FONT_SMALL, COLOR_MIST);
-    body_label(s_content, ss->last_reply, SESS_FONT_BODY, COLOR_MIST);
+    body_label(content, "Latest reply:", SESS_FONT_SMALL, COLOR_MIST);
+    body_label(content, ss->last_reply, SESS_FONT_BODY, COLOR_MIST);
 
-    divider(s_content);
+    divider(content);
 
     /* 下一步 pill（mint）*/
     if (ss->next_step) {
-        lv_obj_t *pill = lv_obj_create(s_content);
+        lv_obj_t *pill = lv_obj_create(content);
         lv_obj_set_size(pill, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
         lv_obj_set_style_radius(pill, LV_RADIUS_CIRCLE, 0);
         lv_obj_set_style_bg_color(pill, COLOR_MINT, 0);
@@ -90,73 +111,51 @@ static void rebuild(void)
         lv_obj_set_style_text_font(pl, SESS_FONT_BODY, 0);
         lv_obj_set_style_text_color(pl, COLOR_VOID, 0);
     } else {
-        body_label(s_content, LV_SYMBOL_OK "  Waiting for your input", SESS_FONT_BODY, COLOR_MIST);
+        body_label(content, LV_SYMBOL_OK "  Waiting for your input", SESS_FONT_BODY, COLOR_MIST);
     }
 
-    divider(s_content);
+    divider(content);
 
     /* 历史 */
-    body_label(s_content, "History:", SESS_FONT_SMALL, COLOR_MIST);
+    body_label(content, "History:", SESS_FONT_SMALL, COLOR_MIST);
     for (int i = 0; i < ss->history_len; i++) {
         const mock_msg_t *m = &ss->history[i];
         lv_color_t c = m->from_user ? COLOR_MIST : ui_source_color(ss->source);
-        lv_obj_t *l = body_label(s_content, m->text, SESS_FONT_BODY, c);
+        lv_obj_t *l = body_label(content, m->text, SESS_FONT_BODY, c);
         if (!m->from_user) lv_obj_set_style_text_opa(l, LV_OPA_90, 0);
         else               lv_obj_set_style_text_opa(l, LV_OPA_60, 0);
     }
 
-    lv_obj_scroll_to_y(s_content, 0, LV_ANIM_OFF);
+    /* 底部固定指示：上滑返回（弧形白条贴合屏幕下缘 + 上箭头）。
+     * 挂在 root 上（不是 content），所以纵向滚动内容时它固定不动、浮在最上层；
+     * 关闭点击，避免挡住内容上下滑 / pager 左右滑手势。 */
+    lv_obj_t *back_arc = lv_arc_create(root);
+    lv_obj_remove_style_all(back_arc);
+    lv_obj_set_size(back_arc, 430, 430);          /* 直径 → 半径≈212，贴近圆屏下缘 */
+    lv_obj_center(back_arc);
+    lv_arc_set_angles(back_arc, 55, 125);         /* 底部约 70° 弧，中点 90°(正下方) */
+    lv_obj_clear_flag(back_arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_arc_width(back_arc, 6, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_rounded(back_arc, true, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(back_arc, lv_color_white(), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_opa(back_arc, LV_OPA_80, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(back_arc, 0, LV_PART_MAIN);     /* 隐藏背景轨道 */
+    lv_obj_set_style_arc_opa(back_arc, LV_OPA_TRANSP, LV_PART_KNOB); /* 隐藏旋钮 */
+
+    lv_obj_t *back_ico = lv_label_create(root);
+    lv_label_set_text(back_ico, LV_SYMBOL_UP);
+    lv_obj_set_style_text_font(back_ico, SESS_FONT_NAME, 0);
+    lv_obj_set_style_text_color(back_ico, lv_color_white(), 0);
+    lv_obj_set_style_text_opa(back_ico, LV_OPA_80, 0);
+    lv_obj_clear_flag(back_ico, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_align(back_ico, LV_ALIGN_CENTER, 0, 196);  /* 弧中点正上方一点 */
+
+    return root;
 }
 
-lv_obj_t *ui_session_create(lv_obj_t *parent)
+void ui_session_scroll_top(lv_obj_t *page)
 {
-    s_index = 0;
-
-    s_root = lv_obj_create(parent);
-    lv_obj_remove_style_all(s_root);
-    lv_obj_set_size(s_root, SCREEN_SIZE, SCREEN_SIZE);
-    lv_obj_set_style_bg_color(s_root, COLOR_VOID, 0);
-    lv_obj_set_style_bg_opa(s_root, LV_OPA_COVER, 0);
-    lv_obj_clear_flag(s_root, LV_OBJ_FLAG_SCROLLABLE);
-
-    /* 会话页不显示外缘 Halo（仅主页显示）*/
-
-    /* 可滚动内容（上下滑翻页），落在安全圆内 */
-    s_content = lv_obj_create(s_root);
-    lv_obj_remove_style_all(s_content);
-    lv_obj_set_size(s_content, 340, SCREEN_SIZE - 2 * (EDGE_SAFE + 20));
-    lv_obj_center(s_content);
-    lv_obj_set_flex_flow(s_content, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(s_content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(s_content, SP_SM, 0);
-    lv_obj_set_scroll_dir(s_content, LV_DIR_VER);
-    lv_obj_set_scrollbar_mode(s_content, LV_SCROLLBAR_MODE_OFF);
-
-    ui_hint(s_root, "Right: next  Left: prev");
-
-    rebuild();
-    return s_root;
-}
-
-int ui_session_next(void)
-{
-    /* 到最后一个会话就停住，不循环 */
-    if (s_index >= mock_session_count() - 1) return s_index;
-    s_index++;
-    rebuild();
-    return s_index;
-}
-
-int ui_session_prev(void)
-{
-    if (s_index == 0) return -1;   /* 首个再左滑 → 回主页 */
-    s_index = (s_index - 1 + mock_session_count()) % mock_session_count();
-    rebuild();
-    return s_index;
-}
-
-void ui_session_reset(void)
-{
-    s_index = 0;
-    if (s_content) rebuild();
+    lv_obj_t *content = lv_obj_get_user_data(page);
+    if (content)
+        lv_obj_scroll_to_y(content, 0, LV_ANIM_OFF);
 }

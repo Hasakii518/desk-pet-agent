@@ -123,7 +123,8 @@ static void init_lcd(void)
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(s_panel, true));
 }
 
-static esp_lcd_touch_handle_t s_tp;
+static esp_lcd_touch_handle_t   s_tp;
+static esp_lcd_panel_io_handle_t s_tp_io;  /* 触控 I2C 句柄，读手势寄存器用 */
 
 static void init_touch(void)
 {
@@ -142,8 +143,10 @@ static void init_touch(void)
     esp_err_t err = esp_lcd_new_panel_io_i2c(s_i2c_bus, &tp_io_cfg, &tp_io);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "touch panel_io init failed (%s), continue without touch", esp_err_to_name(err));
+        s_tp_io = NULL;
         return;
     }
+    s_tp_io = tp_io;   /* 保存 IO 句柄供手势寄存器读取 */
 
     const esp_lcd_touch_config_t tp_cfg = {
         .x_max = LCD_H_RES,
@@ -151,9 +154,9 @@ static void init_touch(void)
         .rst_gpio_num = PIN_TP_RST,
         .int_gpio_num = PIN_TP_INT,
         .levels = { .reset = 0, .interrupt = 0 },
-        /* 本板实测：显示 180° 旋转后，触摸只需镜像 Y（上下），
-         * X（左右）保持不镜像，否则左右滑方向相反。 */
-        .flags = { .swap_xy = 0, .mirror_x = 0, .mirror_y = 1 },
+        /* 显示做了 180° 旋转（MADCTL 0xC0 = X+Y 双镜像），触摸两轴都要镜像才一致。
+         * 只镜像 Y 会导致左右方向相反（原生 pager 用原始触摸 X 滚动）。 */
+        .flags = { .swap_xy = 0, .mirror_x = 1, .mirror_y = 1 },
     };
     /* 触摸初始化失败不致命：显示仍要能亮，仅告警并降级为无触摸 */
     err = esp_lcd_touch_new_i2c_cst816s(tp_io, &tp_cfg, &s_tp);
@@ -237,3 +240,29 @@ bool bsp_lvgl_lock(int timeout_ms) { return lvgl_port_lock(timeout_ms); }
 void bsp_lvgl_unlock(void)         { lvgl_port_unlock(); }
 
 lv_indev_t *bsp_touch_indev(void)  { return s_touch_indev; }
+
+esp_lcd_touch_handle_t bsp_touch_handle(void)  { return s_tp; }
+
+int bsp_touch_read_gesture(void)
+{
+    /* 读 CST816S 手势寄存器 0x01。
+     * 返回值：0=无手势, 1=上滑, 2=下滑, 3=左滑, 4=右滑, 5=点击, -1=错误 */
+    if (!s_tp_io) return -1;
+    uint8_t gesture = 0;
+    esp_err_t err = esp_lcd_panel_io_rx_param(s_tp_io, 0x01, &gesture, 1);
+    return (err == ESP_OK) ? (int)gesture : -1;
+}
+
+void bsp_set_brightness(uint8_t level)
+{
+    /* SH8601 亮度由 0x51 命令的 1 字节参数控制（0x00~0xFF）。
+     * QSPI 命令帧格式同 panel_set_madctl：0x02 前缀 + 命令字节。 */
+    uint32_t cmd = (0x02u << 24) | (0x51u << 8);
+    esp_lcd_panel_io_tx_param(s_io, cmd, &level, 1);
+}
+
+void bsp_display_set_on(bool on)
+{
+    if (s_panel)
+        esp_lcd_panel_disp_on_off(s_panel, on);
+}

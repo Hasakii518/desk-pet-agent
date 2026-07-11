@@ -1,7 +1,7 @@
 /* ui_negative.c — ② 负一屏 */
 #include "ui_negative.h"
 #include "ui_common.h"
-#include "mock_data.h"
+#include "sys_info.h"
 
 typedef enum { VOICE_IDLE, VOICE_RECORDING, VOICE_RECOGNIZING, VOICE_SENT } voice_state_t;
 
@@ -89,8 +89,10 @@ static void kv_row(lv_obj_t *card, const char *k, const char *v)
 
     lv_obj_t *vl = lv_label_create(row);
     lv_label_set_text(vl, v);
-    lv_obj_set_style_text_font(vl, FONT_T3, 0);
+    lv_obj_set_style_text_font(vl, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(vl, COLOR_MIST, 0);
+    lv_obj_set_width(vl, 120);
+    lv_label_set_long_mode(vl, LV_LABEL_LONG_DOT);
 }
 
 /* 一张带标题的信息卡 */
@@ -110,8 +112,6 @@ static lv_obj_t *titled_card(lv_obj_t *parent, const char *title)
 
 lv_obj_t *ui_negative_create(lv_obj_t *parent)
 {
-    const mock_hardware_t *hw = mock_hardware();
-
     s_root = lv_obj_create(parent);
     lv_obj_remove_style_all(s_root);
     lv_obj_set_size(s_root, SCREEN_SIZE, SCREEN_SIZE);
@@ -146,29 +146,39 @@ lv_obj_t *ui_negative_create(lv_obj_t *parent)
     lv_obj_set_style_text_font(s_voice_lbl, FONT_T4, 0);
     voice_render();
 
-    /* 设备卡 */
-    lv_obj_t *dev = titled_card(s_root, "DEVICE");
-    kv_row(dev, hw->device, "");
+    /* ---- 设备卡（真实芯片信息）---- */
     {
-        static char batt[32];
-        lv_snprintf(batt, sizeof(batt), "%d%% %s", hw->battery_pct,
-                    hw->charging ? LV_SYMBOL_CHARGE : "");
-        kv_row(dev, "Battery", batt);
+        lv_obj_t *dev = titled_card(s_root, "DEVICE");
+        kv_row(dev, "Chip", sys_info_chip_model());
+        {
+            static char rev[12];
+            lv_snprintf(rev, sizeof(rev), "%s", sys_info_chip_rev());
+            kv_row(dev, "Rev", rev);
+        }
+        {
+            int8_t batt = sys_info_battery_pct();
+            if (batt >= 0) {
+                static char s[16];
+                if (sys_info_battery_charging())
+                    lv_snprintf(s, sizeof(s), "%d%% " LV_SYMBOL_CHARGE, batt);
+                else
+                    lv_snprintf(s, sizeof(s), "%d%%", batt);
+                kv_row(dev, "Battery", s);
+            }
+        }
+        kv_row(dev, "WiFi", sys_info_wifi_ssid());
     }
-    kv_row(dev, "WiFi", hw->wifi);
 
-    /* 系统卡 */
-    lv_obj_t *sys = titled_card(s_root, "SYSTEM");
+    /* ---- 系统卡（真实内存信息）---- */
     {
-        static char cpu[16];
-        lv_snprintf(cpu, sizeof(cpu), "%d%%", hw->cpu_pct);
-        kv_row(sys, "CPU", cpu);
-    }
-    kv_row(sys, "Memory", hw->mem);
-    {
-        static char lap[16];
-        lv_snprintf(lap, sizeof(lap), "%d%%", hw->laptop_battery_pct);
-        kv_row(sys, "Laptop", lap);
+        lv_obj_t *sys = titled_card(s_root, "SYSTEM");
+        kv_row(sys, "PSRAM", sys_info_psram_str());
+        {
+            static char dram[24];
+            lv_snprintf(dram, sizeof(dram), "free %.1f KB",
+                        (double)sys_info_dram_free() / 1024.0);
+            kv_row(sys, "DRAM", dram);
+        }
     }
 
     /* 预留 slot */
@@ -177,4 +187,10 @@ lv_obj_t *ui_negative_create(lv_obj_t *parent)
 
     ui_hint(s_root, "Swipe right: back home");
     return s_root;
+}
+
+void ui_negative_scroll_top(void)
+{
+    if (s_root)
+        lv_obj_scroll_to_y(s_root, 0, LV_ANIM_OFF);
 }
