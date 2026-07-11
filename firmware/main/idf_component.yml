@@ -1,0 +1,11 @@
+idf_component_manager.yml: {}
+## 组件依赖：显示面板 / 触摸 / LVGL 移植层
+dependencies:
+  idf:
+    version: ">=5.3"
+  lvgl/lvgl: "~9.2.0"
+  espressif/esp_lvgl_port: "~2.4"
+  # 466x466 圆形 AMOLED 面板驱动（QSPI SH8601）
+  waveshare/esp_lcd_sh8601: "1.0.2"
+  # 电容触摸：本板为 CST820，寄存器兼容 CST816 系列驱动
+  espressif/esp_lcd_touch_cst816s: "~1"

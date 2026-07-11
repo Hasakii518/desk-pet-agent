@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 360 400" role="img">
+  <title>② 负一屏</title>
+  <desc>向左滑进入：顶部圆形点击语音按钮，下方四层堆叠卡片（设备、系统、slot:weather、slot:shortcuts），纯黑 AMOLED 背景。</desc>
+
+  <!-- 圆形屏幕：纯黑背景 + Source Halo -->
+  <circle cx="180" cy="180" r="150" fill="#0A0A0C" stroke="#58B4FC" stroke-width="3" stroke-dasharray="10 6"/>
+
+  <!-- 圆形语音按钮（空闲态：stone + mist mic） -->
+  <circle cx="180" cy="104" r="24" fill="#1E1F25" stroke="#E8ECF2" stroke-width="1.5"/>
+  <path d="M180 96 L180 108" stroke="#E8ECF2" stroke-width="2" stroke-linecap="round"/>
+  <path d="M174 100 Q180 92 186 100 L186 106 Q180 114 174 106 Z" fill="none" stroke="#E8ECF2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="180" y="144" font-size="11" fill="#E8ECF2" text-anchor="middle" font-family="sans-serif">点击说话</text>
+
+  <!-- 设备卡 -->
+  <rect x="78" y="160" width="204" height="42" rx="12" fill="#1E1F25"/>
+  <text x="92" y="178" font-size="11" fill="#E8ECF2" font-family="sans-serif">ESP32-S3 AMOLED</text>
+  <text x="92" y="193" font-size="10" fill="#B4B2A9" font-family="sans-serif">电量 82% · 充电中 ● · Office-5G</text>
+
+  <!-- 系统卡 -->
+  <rect x="78" y="208" width="204" height="36" rx="12" fill="#1E1F25"/>
+  <text x="92" y="222" font-size="11" fill="#E8ECF2" font-family="sans-serif">系统</text>
+  <text x="92" y="236" font-size="10" fill="#B4B2A9" font-family="sans-serif">CPU 23% · 内存 6.1G · 笔记本 100%</text>
+
+  <!-- slot:weather -->
+  <rect x="78" y="250" width="204" height="30" rx="8" fill="none" stroke="#5F5E5A" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="180" y="270" font-size="10" fill="#888780" text-anchor="middle" font-family="sans-serif">slot:weather（未启用）</text>
+
+  <!-- slot:shortcuts -->
+  <rect x="78" y="286" width="204" height="30" rx="8" fill="none" stroke="#5F5E5A" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="180" y="306" font-size="10" fill="#888780" text-anchor="middle" font-family="sans-serif">slot:shortcuts（未启用）</text>
+
+  <!-- 说明 -->
+  <text x="180" y="368" font-size="15" font-weight="500" fill="#1f2330" text-anchor="middle" font-family="sans-serif">② 负一屏（左滑进入）</text>
+  <text x="180" y="390" font-size="12" fill="#6b7280" text-anchor="middle" font-family="sans-serif">点击语音 + 四层堆叠卡片 + 预留 slot</text>
+</svg>

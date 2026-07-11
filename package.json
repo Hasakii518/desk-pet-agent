@@ -1,0 +1,9 @@
+{
+  "name": "desk-pet-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ESP32-S3 圆形 AMOLED 桌宠 Agent（设计稿）：联动 Windows/macOS 端 WorkBuddy 与 Claude Code。主页面桌宠、左滑负一屏、右滑单会话页。交互模型参考 clawd-on-desk，渲染目标改为 ESP32 圆形屏。",
+  "author": "",
+  "license": "MIT",
+  "docs": "本项目当前为设计/文档阶段（GUI 布局与规格），不含可运行代码。结构见 docs/ 与 README.md。"
+}

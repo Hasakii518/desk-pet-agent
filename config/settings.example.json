@@ -1,0 +1,21 @@
+{
+  "busPort": 18765,
+  "alwaysOnTop": true,
+  "statePriority": [
+    "disconnected", "error", "permission", "notification", "building", "typing",
+    "thinking", "speaking", "waiting", "happy", "idle", "sleeping"
+  ],
+  "connectors": {
+    "claude-code": { "enabled": true },
+    "workbuddy": { "enabled": true, "logDir": "~/.workbuddy/sessions" }
+  },
+  "hardware": {
+    "device": "ESP32-S3 AMOLED",
+    "transport": "serial",
+    "port": "auto"
+  },
+  "voice": {
+    "engine": "whisper-local",
+    "defaultTarget": "last-active"
+  }
+}

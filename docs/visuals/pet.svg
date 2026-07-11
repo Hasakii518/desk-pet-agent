@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 360 400" role="img">
+  <title>① 主页 · 桌宠</title>
+  <desc>圆形主页面：纯黑 AMOLED 背景上的桌宠表情；Source Halo 沿外缘以 Agent 来源色发光；收到消息时顶部弹出来源色圆点通知胶囊。</desc>
+
+  <!-- 圆形屏幕：纯黑背景 + Source Halo -->
+  <circle cx="180" cy="180" r="150" fill="#0A0A0C" stroke="#B18CFF" stroke-width="3" stroke-dasharray="10 6"/>
+
+  <!-- 宠物脸：mist 线条 -->
+  <circle cx="156" cy="168" r="14" fill="#E8ECF2"/>
+  <circle cx="204" cy="168" r="14" fill="#E8ECF2"/>
+  <path d="M160 204 Q180 224 200 204" stroke="#E8ECF2" stroke-width="5" fill="none" stroke-linecap="round"/>
+
+  <!-- 通知胶囊 -->
+  <rect x="105" y="42" width="150" height="36" rx="18" fill="#1E1F25" stroke="#B18CFF" stroke-width="1"/>
+  <circle cx="126" cy="60" r="5" fill="#B18CFF"/>
+  <text x="138" y="56" font-size="11" fill="#E8ECF2" text-anchor="start" font-family="sans-serif">claude-code</text>
+  <text x="138" y="71" font-size="10" fill="#B4B2A9" text-anchor="start" font-family="sans-serif">已修改 3 个文件…</text>
+
+  <!-- 说明文字 -->
+  <text x="180" y="368" font-size="15" font-weight="500" fill="#1f2330" text-anchor="middle" font-family="sans-serif">① 主页 · 桌宠</text>
+  <text x="180" y="390" font-size="12" fill="#6b7280" text-anchor="middle" font-family="sans-serif">Source Halo + 来源色通知胶囊</text>
+</svg>

@@ -1,0 +1,40 @@
+# ===== ESP-IDF 构建产物 =====
+firmware/build/
+firmware/sdkconfig.old
+
+# ===== 组件管理器自动下载（由 idf_component.yml 重生）=====
+firmware/managed_components/
+firmware/dependencies.lock
+
+# ===== 原始美术素材（svg/gif/png 源文件，体积大；平铺 + gif/svg/png/old 子目录都在 clawd/ 下）=====
+# 保留 firmware/main/assets/clawd/c/clawd_image_data.h：
+#   它是构建必需的“生成位图头”（clawd_assets.c 直接 #include），不能忽略，
+#   否则干净克隆后固件无法编译。若要连它也去掉，需先加“构建期生成脚本”再忽略。
+# 注意：docs/visuals/*.svg 是文档示意图，不在此列，照常提交。
+firmware/main/assets/clawd/*.gif
+firmware/main/assets/clawd/*.svg
+firmware/main/assets/clawd/*.png
+firmware/main/assets/clawd/**/*.gif
+firmware/main/assets/clawd/**/*.svg
+firmware/main/assets/clawd/**/*.png
+src/assets/
+
+# ===== Python =====
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# ===== Node =====
+node_modules/
+npm-debug.log*
+
+# ===== 本地私密配置（保留 *.example.json 模板）=====
+config/settings.json
+.env
+.env.local
+
+# ===== 编辑器 / OS =====
+.DS_Store
+*.swp
+.idea/

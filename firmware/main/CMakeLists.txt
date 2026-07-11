@@ -1,0 +1,17 @@
+idf_component_register(
+    SRCS
+        "app_main.c"
+        "bsp.c"
+        "gesture.c"
+        "pet_states.c"
+        "mock_data.c"
+        "clawd_assets.c"
+        "ui_common.c"
+        "ui_pet.c"
+        "ui_negative.c"
+        "ui_session.c"
+        "ui_control.c"
+    INCLUDE_DIRS
+        "."
+        "assets/clawd/c"
+)
