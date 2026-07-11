@@ -8,8 +8,19 @@ set -euo pipefail
 PROBE_SRC="$(cd "$(dirname "$0")"/.. && pwd)/bin/claudewatch-probe"
 PROBE_DST="${1:-/usr/local/bin/claudewatch-probe}"
 CFG_DIR="$HOME/.config/claudewatch"
-SETTINGS="$HOME/.claude/settings.json"
-HOOK_TYPES=(PreToolUse PostToolUse UserPromptSubmit Stop SubagentStop Notification SessionStart SessionEnd PreCompact)
+# Claude Code 配置目录: 优先 CLAUDE_CONFIG_DIR (tme-claude 用 ~/.tme-claude)，否则探测
+if [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then
+  CLAUDE_DIR="$CLAUDE_CONFIG_DIR"
+elif [[ -d "$HOME/.tme-claude" ]]; then
+  CLAUDE_DIR="$HOME/.tme-claude"
+else
+  CLAUDE_DIR="$HOME/.claude"
+fi
+SETTINGS="$CLAUDE_DIR/settings.json"
+# 纯观测模式: 不注册 PreToolUse。该 hook 在本 agent 里是同步审批闸门，
+# 每次工具调用都阻塞等 UI 决策、30s 超时默认 deny，会锁死 Claude Code。
+# 如需审批闸门，手动把 PreToolUse 加进下面数组并全程开着浏览器审批。
+HOOK_TYPES=(PostToolUse UserPromptSubmit Stop SubagentStop Notification SessionStart SessionEnd PreCompact)
 
 # 守卫: 不要用 sudo 跑本脚本。写 /usr/local/bin 时内部会按需 sudo。
 # sudo 会让 $HOME 变成 /root，导致配置和 settings.json 写错位置。
@@ -49,7 +60,7 @@ echo "${GW}:7777" > "$CFG_DIR/agent.addr"
 echo "✓ agent 地址: ${GW}:7777 → $CFG_DIR/agent.addr"
 
 # 3. token (从 Windows 侧拷贝; 由 install.ps1 生成)
-TOKEN_SRC="/mnt/c/Users/Administrator/AppData/Roaming/ClaudeWatch/token"
+TOKEN_SRC="/mnt/c/Users/armstrong/AppData/Roaming/ClaudeWatch/token"
 if [[ -f "$TOKEN_SRC" ]]; then
   cp "$TOKEN_SRC" "$CFG_DIR/token"
   chmod 600 "$CFG_DIR/token"
@@ -60,6 +71,7 @@ else
 fi
 
 # 4. 注册全局 hook (增量合并，不覆盖已有)
+mkdir -p "$CLAUDE_DIR"
 if [[ ! -f "$SETTINGS" ]]; then
   echo '{}' > "$SETTINGS"
 fi

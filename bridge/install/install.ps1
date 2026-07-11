@@ -17,9 +17,10 @@ $ExePath = Join-Path $InstallDir 'claudewatch.exe'
 $TokenPath = Join-Path $InstallDir 'token'
 $Port = 7777
 
-# WSL 路径 (假设 Ubuntu-24.04 + 当前用户)
-$WslUser = 'tencent_go'
-$WslTokenPath = "\\wsl$\Ubuntu-24.04\home\$WslUser\.config\claudewatch\token"
+# WSL 路径 (Ubuntu + 当前用户)
+$WslDistro = 'Ubuntu'
+$WslUser = 'shuohan'
+$WslTokenPath = "\\wsl$\$WslDistro\home\$WslUser\.config\claudewatch\token"
 
 function Write-OK { param([string]$msg) Write-Host "[OK] $msg" -ForegroundColor Green }
 function Write-Warn2 { param([string]$msg) Write-Host "[!]  $msg" -ForegroundColor Yellow }
@@ -30,7 +31,7 @@ Write-Host '=== ClaudeWatch agent install ===' -ForegroundColor Cyan
 # 1. 部署 exe
 $repoExe = Join-Path $PSScriptRoot '..\bin\claudewatch.exe'
 if (-not (Test-Path $repoExe)) {
-    $wslExe = "\\wsl$\Ubuntu-24.04\home\$WslUser\projects\personal\claudewatch\bin\claudewatch.exe"
+    $wslExe = "\\wsl$\$WslDistro\home\$WslUser\projects\personal\claudewatch\bin\claudewatch.exe"
     if (Test-Path $wslExe) {
         $repoExe = $wslExe
     } else {
@@ -74,7 +75,7 @@ $lnk.Save()
 Write-OK "startup shortcut: $LnkPath"
 
 # 5. 同步 token 到 WSL
-$wslCfgDir = "\\wsl$\Ubuntu-24.04\home\$WslUser\.config\claudewatch"
+$wslCfgDir = "\\wsl$\$WslDistro\home\$WslUser\.config\claudewatch"
 New-Item -ItemType Directory -Force -Path $wslCfgDir | Out-Null
 Copy-Item $TokenPath $WslTokenPath -Force
 Write-OK "token synced to WSL: $WslTokenPath"
