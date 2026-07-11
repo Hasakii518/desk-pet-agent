@@ -1,0 +1,39 @@
+# 编译产物
+/bin/
+*.exe
+*.exe.old
+*.exe.new
+
+# 前端依赖 + 构建产物
+/frontend/node_modules/
+/web/dist/
+
+# 本地 Go 版本管理
+/.go-version.local
+
+# 数据库 + 临时文件
+*.db
+*.db-wal
+*.db-shm
+events.db
+
+# agent 运行时文件
+agent.out
+agent.err
+*.update.bat
+*.update.sh
+*.update.log
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 日志
+*.log
+/tmp/
