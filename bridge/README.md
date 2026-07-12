@@ -78,7 +78,45 @@ cd bridge
 
 ### 打开界面
 
-浏览器访问 `http://127.0.0.1:7777`。左侧 session 列表，右侧事件时间线；Serial 标签页可看 ESP32 固件日志（支持上翻阅读，右上角 `follow` 可关自动跟随）。
+浏览器访问 `http://127.0.0.1:7777`。
+
+**左侧栏**：☰ 按钮可折叠成 32px 窄条；展开时右侧边缘可**拖拽调整宽度**（120–500px），双击边缘重置。
+
+**Serial 标签页**（ESP32 固件日志）：
+- **方向过滤**：`all` / `TX ▼`（下发） / `RX ▲`（设备上行）
+- **增量滚动**：日志增量追加不重排，上翻时自动暂停跟随；`follow` 开关 + 「↓ 回到底部」按钮
+- **连接控制**：红点→ **Connect**，绿点→ **Disconnect**
+
+**Logs 标签页**（agent 自身日志）：按级别过滤，`auto-scroll` 滚动感知。
+
+## ESP32 通信
+
+bridge 与 ESP32 经**串口**（USB‑CDC）通信，每行一条 JSON + `\n` 分隔。
+
+### 下行帧类型
+
+| `t` | 说明 | 触发时机 |
+|-----|------|----------|
+| `notify` | 状态切换 + 通知弹窗 | 每条 hook 事件 |
+| `session` | 会话快照（设备按 `sid` 覆盖内存） | SessionStart / Stop / SessionEnd + 初始同步 |
+| `heartbeat` | 链路保活 | 每 5s |
+
+### 初始同步
+
+串口重连后，bridge 等待 500ms 后下发最近 **3 条 session 快照**（`state: "idle"`），帧间间隔 **800ms**。
+
+### 会话心跳
+
+每 **20s** 扫描等待用户操作的 session，按优先级重复下发状态通知（每次仅发一条）：
+
+| 优先级 | state | 条件 | 弹窗 text |
+|--------|-------|------|-----------|
+| 1 | `permission` | 有待审批的 PreToolUse | `等待审批: <tool_name>` |
+| 2 | `waiting` | 最新事件为 Stop（等待用户回复） | truncated recap |
+
+### 帧大小
+
+所有下行帧截断至 **≤250 字节**（`MaxText=16` runes、`MaxName=20` runes），确保不超 ESP32 串口行缓冲（256B），并用 **`…`** 标记截断。
 
 ## 配置（`config.json`）
 
@@ -154,7 +192,18 @@ claudewatch/
 | GET | `/api/sessions/{id}/events?limit=N&offset=N` | session 事件流（ts 升序） |
 | GET | `/api/stats` | 全局统计 |
 | GET | `/ws` | WebSocket，实时推送新事件 |
+| GET | `/ws/logs` | WebSocket，agent 日志实时流 |
+| GET | `/api/logs?level=&limit=&since=` | agent 日志 |
+| GET | `/api/doctor` | 诊断报告（hook 注册、probe 活性、DB 健康） |
 | GET | `/healthz` | 健康检查 |
+| **Serial** | | |
+| GET | `/api/serial/status` | 串口状态（端口、连接、帧计数、暂停） |
+| GET | `/api/serial/log?limit=&since=` | 串口通信日志；`since` 仅返回增量行 |
+| POST | `/api/serial/send` | 下发 JSON 帧到设备（body 为原始 JSON） |
+| POST | `/api/serial/disconnect` | 释放 COM 口（供刷固件用） |
+| POST | `/api/serial/connect` | 恢复串口连接 |
+| **自更新** | | |
+| POST | `/api/update` | 上传新 agent 二进制并触发重启（需 token） |
 
 ## 卸载
 

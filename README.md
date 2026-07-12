@@ -82,6 +82,14 @@ cd bridge && make release   # 前端 + agent/probe 全平台二进制 → bin/
 配置与 token 统一在 `%APPDATA%\ClaudeWatch\`（Win）/ `~/.config/claudewatch\`（Mac·Linux），
 agent 读 `config.json`、token 缺失时自动生成。之后浏览器打开 `http://127.0.0.1:7777`。
 
+**前端功能**：可折叠拖拽侧边栏、session 时间线、固件串口日志（方向过滤 + 增量滚动）、agent 日志、系统诊断。
+
+**ESP32 下行**：hook 事件实时翻译为 `notify`（状态 + 弹窗）+ `session`（会话快照）帧下发；
+串口重连自动初始同步 3 条近期 session；每 20s 心跳重复推送等待用户操作的会话状态；
+每 5s 链路心跳保活。帧截断 ≤250 字节适配 ESP32 串口缓冲。
+
+完整文档见 [`bridge/README.md`](bridge/README.md)。
+
 ## 目录与文档
 
 - [`docs/DESIGN-SYSTEM.md`](docs/DESIGN-SYSTEM.md) —— 统一设计系统：色彩、字体、间距、动效、Source Halo
