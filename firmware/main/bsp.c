@@ -91,7 +91,7 @@ static void init_lcd(void)
         .data1_io_num = PIN_LCD_D1,
         .data2_io_num = PIN_LCD_D2,
         .data3_io_num = PIN_LCD_D3,
-        .max_transfer_sz = LCD_H_RES * LCD_V_RES * sizeof(uint16_t),
+        .max_transfer_sz = 64 * 1024,  /* SPI DMA 内部缓冲≤64KB，大传输由 DMA 链表分段 */
     };
     ESP_ERROR_CHECK(spi_bus_initialize(LCD_SPI_HOST, &buscfg, SPI_DMA_CH_AUTO));
 
