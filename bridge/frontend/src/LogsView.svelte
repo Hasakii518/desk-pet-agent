@@ -42,7 +42,7 @@
   loadRecent()
   connect()
 
-  $: filtered = levelFilter ? logs.filter(l => l.level === levelFilter) : logs
+  $: filtered = levelFilter ? (logs || []).filter(l => l.level === levelFilter) : (logs || [])
 
   function fmtTs(ts) {
     const d = new Date(ts)

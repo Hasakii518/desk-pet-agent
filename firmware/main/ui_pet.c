@@ -20,6 +20,9 @@ static lv_obj_t *s_halo;
 static lv_obj_t *s_gif;         /* lv_gif widget（11 个动画态）*/
 static lv_obj_t *s_img;         /* lv_image widget（disconnected 回退）*/
 static lv_obj_t *s_active;      /* 当前活跃的 pet widget（gif 或 img）*/
+static const void *s_cur_gif_src; /* 当前 GIF 素材指针，避免重复 set_src 重启动画 */
+static pet_state_t  s_last_state; /* 上次刷新时的状态，避免重复 ui_halo_apply */
+static agent_source_t s_last_src; /* 上次刷新时的来源 */
 static lv_obj_t *s_bubble;
 static lv_obj_t *s_bubble_title;     /* flex row: bell icon + 标题文字 */
 static lv_obj_t *s_bubble_icon;
@@ -218,18 +221,32 @@ void ui_pet_refresh(void)
     bool is_gif = clawd_is_gif(st);
 
     if (is_gif) {
-        lv_gif_set_src(s_gif, dsc);
+        /* 仅素材变化或 widget 刚从隐藏态恢复时才重载 GIF，避免每次 refresh
+         * 都 lv_gif_set_src → gd_open_gif_data → 重置时序，动画永远播不完 */
+        if (s_cur_gif_src != (const void *)dsc
+            || lv_obj_has_flag(s_gif, LV_OBJ_FLAG_HIDDEN)) {
+            lv_gif_set_src(s_gif, dsc);
+            lv_gif_set_loop_count(s_gif, 0);    /* 0 = 无限循环（gifdec: 仅 ==1 或 <0 才停）*/
+            s_cur_gif_src = dsc;
+        }
         lv_obj_clear_flag(s_gif, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_img, LV_OBJ_FLAG_HIDDEN);
         s_active = s_gif;
     } else {
+        s_cur_gif_src = NULL;
         lv_image_set_src(s_img, dsc);
         lv_obj_add_flag(s_gif, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(s_img, LV_OBJ_FLAG_HIDDEN);
         s_active = s_img;
     }
 
-    ui_halo_apply(s_halo, st, src);
+    /* 仅状态/来源变化时才重建 Halo 动画，避免每次 refresh 都
+     * lv_anim_delete → lv_anim_start 从零重来，视觉上「中断」感 */
+    if (s_last_state != st || s_last_src != src) {
+        ui_halo_apply(s_halo, st, src);
+        s_last_state = st;
+        s_last_src   = src;
+    }
 
     /* 只要 notify 帧带了 title/text 就显示气泡，不限 PET_NOTIFICATION 态。
      * bridge 下发的 typing/building/thinking 等都携带弹窗内容。 */
@@ -284,7 +301,12 @@ static void bubble_click_cb(lv_event_t *e)
 
 static void modal_click_cb(lv_event_t *e)
 {
-    /* 仅当直接点在遮罩（空白）上才关闭；点在卡片 / 正文 / 提示上不关 */
-    if (lv_event_get_target(e) == s_modal && s_modal)
-        lv_obj_add_flag(s_modal, LV_OBJ_FLAG_HIDDEN);
+    (void)e;
+    /* 点 modal 内任意位置（遮罩/卡片/文字）→ 关闭弹窗 + 清除通知 */
+    if (!s_modal) return;
+    lv_obj_add_flag(s_modal, LV_OBJ_FLAG_HIDDEN);
+    /* 关闭弹窗 = 已读通知：清除通知 + 隐藏气泡，不调 ui_pet_refresh()
+     * 以免 lv_gif_set_src 重启 Clawd 动画 */
+    session_store_clear_notification();
+    lv_obj_add_flag(s_bubble, LV_OBJ_FLAG_HIDDEN);
 }

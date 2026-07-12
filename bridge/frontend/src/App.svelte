@@ -12,6 +12,29 @@
   let ws = null
   let view = 'session'
   let permissions = []
+  let sidebarCollapsed = false
+  let sidebarWidth = 280          // expanded sidebar width, adjustable via drag
+  function toggleSidebar() { sidebarCollapsed = !sidebarCollapsed }
+
+  // sidebar resize via drag handle
+  function startResize(e) {
+    const startX = e.clientX
+    const startW = sidebarWidth
+    function onMove(ev) {
+      sidebarWidth = Math.max(120, Math.min(500, startW + ev.clientX - startX))
+    }
+    function onUp() {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }
+  function resetWidth() { sidebarWidth = 280 }
 
   function connectWS() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
@@ -65,14 +88,21 @@
   function onToggleSerial() { view = view === 'serial' ? 'session' : 'serial' }
 </script>
 
-<div class="app">
-  <aside class="sidebar">
+<div class="app" style:grid-template-columns={sidebarCollapsed ? '32px 1fr' : sidebarWidth + 'px 1fr'}>
+  <aside class="sidebar" class:collapsed={sidebarCollapsed}>
+    <button class="sidebar-toggle" on:click={toggleSidebar}
+            title={sidebarCollapsed ? 'expand sidebar' : 'collapse sidebar'}>
+      {sidebarCollapsed ? '☰' : '☰'}<span class="toggle-label">{sidebarCollapsed ? '' : ' hide'}</span>
+    </button>
+    {#if !sidebarCollapsed}
     <div class="sidebar-header">
       <h1><span class="live-dot" class:hidden={!liveCount}></span>ClaudeWatch</h1>
       <span class="live-label">{liveCount ? 'live' : '...'}</span>
     </div>
     <Status {onToggleLogs} logsActive={view === 'logs'} {onToggleDoctor} doctorActive={view === 'doctor'} {onToggleSerial} serialActive={view === 'serial'} />
     <SessionsView {selected} onSelect={onSelect} />
+    <div class="sidebar-resize-handle" on:mousedown={startResize} on:dblclick={resetWidth} title="drag to resize, double-click to reset"></div>
+    {/if}
   </aside>
   <main class="detail">
     {#if view === 'logs'}
@@ -93,4 +123,35 @@
 
 <style>
   .hidden { display: none; }
+  .sidebar-toggle {
+    position: absolute;
+    top: 8px;
+    right: 6px;
+    z-index: 2;
+    height: 24px;
+    padding: 0 6px 0 5px;
+    font-size: 13px;
+    line-height: 1;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--bg-elev);
+    color: var(--text-dim);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .sidebar-toggle:hover { color: var(--text); background: var(--bg-hover); }
+  .toggle-label { font-size: 10px; font-family: var(--mono); }
+  .sidebar.collapsed .sidebar-toggle { position: static; margin: 6px auto 0; padding: 0 4px; }
+  .sidebar.collapsed .toggle-label { display: none; }
+
+  .sidebar-resize-handle {
+    position: absolute;
+    top: 0; right: -3px;
+    width: 6px; height: 100%;
+    cursor: col-resize;
+    z-index: 10;
+  }
+  .sidebar-resize-handle:hover { background: var(--accent-dim); }
 </style>

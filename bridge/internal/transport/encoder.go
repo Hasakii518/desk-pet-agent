@@ -25,8 +25,8 @@ var lastToolBrief sync.Map // sessionID → string
 
 // 帧文本截断阈值（串口帧友好）。
 const (
-	maxText = 40   // 单帧 <250B，USB 64B 包 ≤4 包，零碎片化
-	maxName = 48
+	MaxText = 16   // 单帧 ≤256B（ESP32 串口行缓冲上限），CJK 按 ≤3B/rune 计算
+	MaxName = 20
 )
 
 // FramesFor 把一个 hook 事件翻译成下行帧。返回 nil 表示该事件不下发。
@@ -85,9 +85,9 @@ func mapHook(ev protocol.Event) (string, popup) {
 		}
 		return "typing", popup{title: ev.ToolName, text: "Done"}
 	case "Notification":
-		return "notification", popup{title: "Notification", text: truncate(ev.Message, maxText)}
+		return "notification", popup{title: "Notification", text: Truncate(ev.Message, MaxText)}
 	case "Stop":
-		return "happy", popup{title: "Done", text: truncate(ev.Recap, maxText)}
+		return "happy", popup{title: "Done", text: Truncate(ev.Recap, MaxText)}
 	case "SessionEnd":
 		return "idle", popup{title: "Session Ended", text: "Conversation finished"}
 	default:
@@ -106,14 +106,14 @@ func toolBrief(toolName string, raw json.RawMessage) string {
 	}
 	// Bash：提取 command 字段
 	if cmd, ok := m["command"]; ok {
-		return truncate(fmt.Sprint(cmd), maxText)
+		return Truncate(fmt.Sprint(cmd), MaxText)
 	}
 	// Edit / Write / Read：提取 file_path
 	if fp, ok := m["file_path"]; ok {
-		return toolName + " " + truncate(fmt.Sprint(fp), maxText-len(toolName)-1)
+		return toolName + " " + Truncate(fmt.Sprint(fp), MaxText-len(toolName)-1)
 	}
 	if fp, ok := m["filePath"]; ok {
-		return toolName + " " + truncate(fmt.Sprint(fp), maxText-len(toolName)-1)
+		return toolName + " " + Truncate(fmt.Sprint(fp), MaxText-len(toolName)-1)
 	}
 	return "Running " + toolName + "…"
 }
@@ -127,17 +127,17 @@ func sessionFrame(ev protocol.Event, src, state string) Frame {
 		Src:       src,
 		SID:       ev.SessionID,
 		State:     state,
-		LastReply: truncate(ev.Recap, maxText),
+		LastReply: Truncate(ev.Recap, MaxText),
 		TS:        ev.Ts,
 	}
 	if ev.Title != "" {
-		sf.Name = truncate(ev.Title, maxName)
+		sf.Name = Truncate(ev.Title, MaxName)
 	}
 	return sf
 }
 
 // truncate 截断到 n 字符（按 rune），超长补省略号；空串原样返回。
-func truncate(s string, n int) string {
+func Truncate(s string, n int) string {
 	if s == "" {
 		return ""
 	}

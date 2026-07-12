@@ -26,10 +26,13 @@ gesture_t gesture_release(int16_t x, int16_t y)
 
     /* 竖直主分量 */
     if (ady >= adx) {
-        /* 起点落在屏幕任一短边边缘 → 全局回家。
-         * MADCTL 180° 后物理底边=LVGL y≈0、物理顶边=LVGL y≈466，两侧都判。 */
-        if (s_y0 >= SCREEN_SIZE - BOTTOM_EDGE || s_y0 <= BOTTOM_EDGE)
-            return GESTURE_HOME;
+        /* 起点落在短边边缘 + 方向朝屏幕内 → 全局回家。
+         * MADCTL 180° 后物理底边=LVGL y≈0、物理顶边=LVGL y≈466。
+         * 仅边缘→屏内的单向滑动才判 HOME，边缘→屏外走普通 UP/DOWN。 */
+        if (s_y0 <= BOTTOM_EDGE && dy > 0)
+            return GESTURE_HOME;   /* 物理底边 + 上滑 */
+        if (s_y0 >= SCREEN_SIZE - BOTTOM_EDGE && dy < 0)
+            return GESTURE_HOME;   /* 物理顶边 + 下滑 */
         return dy < 0 ? GESTURE_UP : GESTURE_DOWN;
     }
 

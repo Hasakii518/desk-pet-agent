@@ -22,8 +22,8 @@
   window.addEventListener('cw-event', scheduleLoad)
   setInterval(load, 5000)
 
-  $: activeSessions = sessions.filter(s => s.status !== 'archived')
-  $: archivedSessions = sessions.filter(s => s.status === 'archived')
+  $: activeSessions = (sessions || []).filter(s => s.status !== 'archived')
+  $: archivedSessions = (sessions || []).filter(s => s.status === 'archived')
 
   async function archive(id, e) {
     e.stopPropagation()

@@ -38,7 +38,7 @@ button:hover { background: var(--bg-hover); }
 
 .app {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 280px 1fr;
   height: 100vh;
 }
 
@@ -47,6 +47,15 @@ button:hover { background: var(--bg-hover); }
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+/* collapsed sidebar — just the toggle button visible */
+.app.sidebar-collapsed {
+  grid-template-columns: 32px 1fr;
+}
+.sidebar.collapsed {
   overflow: hidden;
 }
 

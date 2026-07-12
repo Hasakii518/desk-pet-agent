@@ -190,6 +190,8 @@ func main() {
 	go hookWatchdogLoop(ctx, *wslDistro, config.TokenPath(), recentProbe, logBuf)
 	// 定期清理超时未决策的 permission（#23）
 	go permissionCleanupLoop(ctx, permReg, logBuf)
+	// 每 20s 把等待用户操作的 session 状态重复下发（优先级：permission > waiting）
+	go sessionHeartbeatLoop(ctxTransport, st, permReg, multi, logBuf)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ingest", handleIngest(st, *token, m, logBuf, recentProbe))
@@ -925,9 +927,9 @@ func syncSessions(ctx context.Context, st *store.Store, sw *transport.SerialWrit
 			T:         "session",
 			Src:       "claude-code",
 			SID:       si.ID,
-			Name:      si.Title,
+			Name:      transport.Truncate(si.Title, transport.MaxName),
 			State:     "idle",
-			LastReply: si.Recap,
+			LastReply: transport.Truncate(si.Recap, transport.MaxText),
 			TS:        time.Now().UnixMilli(),
 		}
 		if werr := sw.Write(transport.NewLine(&f)); werr != nil {
@@ -938,10 +940,77 @@ func syncSessions(ctx context.Context, st *store.Store, sw *transport.SerialWrit
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(300 * time.Millisecond):
+		case <-time.After(800 * time.Millisecond):
 		}
 	}
 	lb.Log(logbuf.LevelInfo, fmt.Sprintf("initial-sync: sent %d sessions", len(sessions)))
+}
+
+// sessionHeartbeatLoop 每 20s 扫描等待用户操作的 session，按优先级重复下发状态通知。
+// 优先级：permission（审批等待）> waiting（等待用户回复）。一次心跳仅下发一条。
+func sessionHeartbeatLoop(ctx context.Context, st *store.Store, pr *permission.Registry, multi *transport.Multi, lb *logbuf.Buffer) {
+	ticker := time.NewTicker(20 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			sendHeartbeat(ctx, st, pr, multi, lb)
+		}
+	}
+}
+
+func sendHeartbeat(ctx context.Context, st *store.Store, pr *permission.Registry, multi *transport.Multi, lb *logbuf.Buffer) {
+	// Priority 1: pending permission (tool approval waiting)
+	pending := pr.List()
+	if len(pending) > 0 {
+		p := pending[0]
+		lb.Log(logbuf.LevelDebug, fmt.Sprintf("session-heartbeat: permission %s for session %s", p.ToolName, p.SessionID[:8]))
+		f := transport.Frame{
+			T:     "notify",
+			Src:   "claude-code",
+			SID:   p.SessionID,
+			State: "permission",
+			// title not displayed on device, put info in text
+			Text:  "等待审批: " + p.ToolName,
+			TS:    time.Now().UnixMilli(),
+		}
+		multi.Write(transport.NewLine(&f))
+		return
+	}
+
+	// Priority 2: active session waiting for user reply (latest event was Stop)
+	sessions, err := st.ListSessions(ctx, 10)
+	if err != nil {
+		lb.Log(logbuf.LevelWarn, fmt.Sprintf("session-heartbeat: list sessions failed: %v", err))
+		return
+	}
+	for _, si := range sessions {
+		if si.Status != "active" {
+			continue
+		}
+		events, err := st.ListEvents(ctx, si.ID, 1, 0)
+		if err != nil || len(events) == 0 {
+			continue
+		}
+		if events[0].HookEventName == "Stop" {
+			lb.Log(logbuf.LevelDebug, fmt.Sprintf("session-heartbeat: waiting for session %s (%s)", si.Title, si.ID[:8]))
+			f := transport.Frame{
+				T:     "notify",
+				Src:   "claude-code",
+				SID:   si.ID,
+				Name:  si.Title,
+				State: "waiting",
+				// put key info in text
+				Text:  transport.Truncate(si.Recap, transport.MaxText),
+				TS:    time.Now().UnixMilli(),
+			}
+			multi.Write(transport.NewLine(&f))
+			return
+		}
+	}
+	lb.Log(logbuf.LevelDebug, "session-heartbeat: no session needs re-notify")
 }
 
 func envOr(key, def string) string {

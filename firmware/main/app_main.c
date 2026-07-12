@@ -44,8 +44,9 @@ static void dispatch(gesture_t g)
     }
 
     switch (g) {
-    case GESTURE_HOME:                 /* 底边上滑：全局回主页 */
-        ui_nav_go_home();
+    case GESTURE_HOME:                 /* 底边上滑：全局回主页（已在家则跳过）*/
+        if (!ui_nav_at_home())
+            ui_nav_go_home();
         break;
     case GESTURE_UP:                   /* 仅主页下滑拉出控制中心（旋转后 LVGL UP = 物理下滑） */
         if (ui_nav_at_home())

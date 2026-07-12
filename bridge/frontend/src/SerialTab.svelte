@@ -3,7 +3,7 @@
   let events = []
   let follow = true        // 自动跟随最新日志（用户上翻阅读时自动关闭）
   let autoRefresh
-  let monitorOnly = false  // true = 只看设备上行（模拟 idf.py monitor）
+  let dirFilter = ''       // '' = all, 'tx' = 下发, 'rx' = 设备上行
   let sendText = ''
   let sending = false
   let logEl
@@ -88,7 +88,7 @@
     return s.length > n ? s.slice(0, n) + '…' : s
   }
 
-  $: filteredEvents = monitorOnly ? events.filter(e => e.dir === 'rx') : events
+  $: filteredEvents = dirFilter ? (events || []).filter(e => e.dir === dirFilter) : (events || [])
 
   function nearBottom() {
     if (!logEl) return true
@@ -121,19 +121,20 @@
     {#if status.suspended}
       <span class="suspended-tag">SUSPENDED</span>
     {/if}
-    <label class="monitor-toggle" title="show only device log lines (RX)">
-      <input type="checkbox" bind:checked={monitorOnly} />
-      <span class="monitor-label">monitor</span>
-    </label>
+    <select class="dir-select" bind:value={dirFilter} title="filter by direction">
+      <option value="">all</option>
+      <option value="tx">TX ▼</option>
+      <option value="rx">RX ▲</option>
+    </select>
     <label class="monitor-toggle" title="auto-scroll to newest line">
       <input type="checkbox" bind:checked={follow} />
       <span class="monitor-label">follow</span>
     </label>
     <div class="spacer"></div>
-    {#if status.suspended}
-      <button class="btn connect" on:click={connect}>Connect</button>
-    {:else}
+    {#if status.connected}
       <button class="btn disconnect" on:click={disconnect}>Disconnect</button>
+    {:else}
+      <button class="btn connect" on:click={connect}>Connect</button>
     {/if}
   </div>
 
@@ -147,7 +148,7 @@
       </div>
     {/each}
     {#if filteredEvents.length === 0}
-      <div class="empty">{monitorOnly ? 'No device output yet. Is the device running?' : 'No serial events yet.'}</div>
+      <div class="empty">{dirFilter ? 'No ' + dirFilter.toUpperCase() + ' events yet.' : 'No serial events yet.'}</div>
     {/if}
   </div>
   {#if !follow}
@@ -197,6 +198,18 @@
     border: 1px solid var(--yellow);
     border-radius: 3px;
   }
+  .dir-select {
+    background: var(--bg);
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 10px;
+    cursor: pointer;
+  }
+  .dir-select:focus { border-color: var(--accent); color: var(--text); }
+
   .monitor-toggle {
     display: flex;
     align-items: center;
