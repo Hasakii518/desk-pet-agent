@@ -229,7 +229,6 @@ static void init_lvgl(void)
     /* 复位镜像方向为 0xC0（旋转 180°），修正反向显示 */
     panel_set_madctl(0xC0);
 
-<<<<<<< HEAD
     /* TinyTTF: copy font data from flash to PSRAM, then create LVGL fonts */
     {
         size_t buf_sz;
@@ -267,35 +266,6 @@ static void init_lvgl(void)
         } else {
             ESP_LOGW(TAG, "CJK font not available (0 bytes)");
         }
-=======
-    /* FreeType emoji fallback font */
-    font_fs_init();
-    font_fs_add("emoji.ttf", emoji_ttf_data, emoji_ttf_len);
-    s_emoji_font = lv_freetype_font_create("M:emoji.ttf",
-                          LV_FREETYPE_FONT_RENDER_MODE_BITMAP,
-                          24, LV_FREETYPE_FONT_STYLE_NORMAL);
-    if (s_emoji_font) {
-        ESP_LOGI(TAG, "Emoji font loaded (%d bytes)", (int)emoji_ttf_len);
-    } else {
-        ESP_LOGW(TAG, "Emoji font failed to load");
-    }
-
-    /* CJK 字体：同 emoji 机制，从 cjk.ttf（占位，用户替换为真实 CJK TTF）*/
-    if (cjk_ttf_len > 0) {
-        font_fs_add("cjk.ttf", cjk_ttf_data, cjk_ttf_len);
-        ESP_LOGI(TAG, "CJK font registered (%d bytes)", (int)cjk_ttf_len);
-        const int sizes[] = {14, 16, 20, 24, 28};
-        lv_font_t **slots[] = {&s_cjk_14, &s_cjk_16, &s_cjk_20, &s_cjk_24, &s_cjk_28};
-        for (int i = 0; i < 5; i++) {
-            *slots[i] = lv_freetype_font_create("M:cjk.ttf",
-                          LV_FREETYPE_FONT_RENDER_MODE_BITMAP,
-                          sizes[i], LV_FREETYPE_FONT_STYLE_NORMAL);
-            if (*slots[i])
-                ESP_LOGI(TAG, "CJK font %dpx loaded", sizes[i]);
-        }
-    } else {
-        ESP_LOGW(TAG, "CJK font not available (0 bytes) — Chinese text will show as boxes");
->>>>>>> 72506d7 (display: PSRAM buffer + DMA writeback — reduce flush/tear)
     }
 
     const lvgl_port_touch_cfg_t touch_cfg = {
@@ -318,11 +288,8 @@ lv_font_t *bsp_cjk_font(int size)
     case 20: return s_cjk_20;
     case 24: return s_cjk_24;
     case 28: return s_cjk_28;
-<<<<<<< HEAD
     case 32: return s_cjk_32;
     case 36: return s_cjk_36;
-=======
->>>>>>> 72506d7 (display: PSRAM buffer + DMA writeback — reduce flush/tear)
     default: return NULL;
     }
 }
