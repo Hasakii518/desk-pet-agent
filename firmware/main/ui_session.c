@@ -131,7 +131,7 @@ lv_obj_t *ui_session_create_page(lv_obj_t *parent,
         lv_obj_set_style_text_font(pl, SESS_FONT_BODY, 0);
         lv_obj_set_style_text_color(pl, COLOR_VOID, 0);
     } else {
-        body_label(content, LV_SYMBOL_OK "  Waiting for your input", SESS_FONT_BODY, COLOR_MIST);
+        body_label(content, LV_SYMBOL_OK "  Waiting for your input", &lv_font_montserrat_24, COLOR_MIST);
     }
 
     divider(content);
