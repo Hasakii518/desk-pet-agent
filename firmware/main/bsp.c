@@ -91,7 +91,7 @@ static void init_lcd(void)
         .data1_io_num = PIN_LCD_D1,
         .data2_io_num = PIN_LCD_D2,
         .data3_io_num = PIN_LCD_D3,
-        .max_transfer_sz = 64 * 1024,  /* SPI DMA 内部缓冲≤64KB，大传输由 DMA 链表分段 */
+        .max_transfer_sz = LCD_H_RES * LCD_V_RES * sizeof(uint16_t),
     };
     ESP_ERROR_CHECK(spi_bus_initialize(LCD_SPI_HOST, &buscfg, SPI_DMA_CH_AUTO));
 
@@ -205,7 +205,7 @@ static void init_lvgl(void)
     const lvgl_port_display_cfg_t disp_cfg = {
         .io_handle = s_io,
         .panel_handle = s_panel,
-        .buffer_size = LCD_H_RES * (LCD_V_RES / 2),
+        .buffer_size = LCD_H_RES * 40,
         .double_buffer = true,
         .hres = LCD_H_RES,
         .vres = LCD_V_RES,
@@ -214,7 +214,6 @@ static void init_lvgl(void)
         .rotation = { .swap_xy = false, .mirror_x = false, .mirror_y = false },
         .flags = {
             .buff_dma = true,
-            .buff_spiram = true,
             .swap_bytes = true,
         },
     };
