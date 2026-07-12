@@ -205,7 +205,7 @@ static void init_lvgl(void)
     const lvgl_port_display_cfg_t disp_cfg = {
         .io_handle = s_io,
         .panel_handle = s_panel,
-        .buffer_size = LCD_H_RES * 100,   /* 100 行 → ~5 flush/帧 */
+        .buffer_size = LCD_H_RES * 80,    /* 80 行 → ~6 flush/帧 */
         .double_buffer = true,
         .hres = LCD_H_RES,
         .vres = LCD_V_RES,
