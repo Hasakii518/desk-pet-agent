@@ -131,7 +131,7 @@ lv_obj_t *ui_session_create_page(lv_obj_t *parent,
 
         lv_obj_t *pl_ico = lv_label_create(pill);
         lv_label_set_text(pl_ico, LV_SYMBOL_PLAY);
-        lv_obj_set_style_text_font(pl_ico, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_font(pl_ico, &lv_font_montserrat_24, 0);
         lv_obj_set_style_text_color(pl_ico, COLOR_VOID, 0);
 
         lv_obj_t *pl_text = lv_label_create(pill);
