@@ -104,6 +104,9 @@ lv_obj_t *ui_slot_placeholder(lv_obj_t *parent, const char *slot_name);
 /* 底部提示文字（T4，mist 40%），落在安全圆内 */
 lv_obj_t *ui_hint(lv_obj_t *parent, const char *text);
 
+/* 从空闲休眠中唤醒显示（触摸 / 串口帧到达时调用）*/
+void app_reset_idle(void);
+
 /* 创建 Source Halo：屏幕外缘细弧环。返回 arc 对象，可用 ui_halo_apply 更新。 */
 lv_obj_t *ui_halo_create(lv_obj_t *parent);
 

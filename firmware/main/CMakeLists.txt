@@ -13,7 +13,16 @@ idf_component_register(
         "ui_negative.c"
         "ui_session.c"
         "ui_control.c"
+        "session_store.c"
+        "serial_protocol.c"
+        "font_fs.c"
+        "assets/font/noto_emoji.c"
+        "assets/font/cjk_font.c"
     INCLUDE_DIRS
         "."
         "assets/clawd/c"
+        "assets/font"
+    REQUIRES
+        json
+        esp_adc
 )

@@ -2,6 +2,7 @@
 #include "ui_negative.h"
 #include "ui_common.h"
 #include "sys_info.h"
+#include "serial_protocol.h"
 
 typedef enum { VOICE_IDLE, VOICE_RECORDING, VOICE_RECOGNIZING, VOICE_SENT } voice_state_t;
 
@@ -66,6 +67,7 @@ void ui_negative_voice_tap(void)
 static void voice_btn_event_cb(lv_event_t *e)
 {
     (void)e;
+    serial_protocol_send_cmd("voice_start");   /* 上行：通知 bridge 开启录音 */
     ui_negative_voice_tap();
 }
 

@@ -9,3 +9,5 @@ dependencies:
   waveshare/esp_lcd_sh8601: "1.0.2"
   # 电容触摸：本板为 CST820，寄存器兼容 CST816 系列驱动
   espressif/esp_lcd_touch_cst816s: "~1"
+  # Emoji 渲染（FreeType）
+  espressif/freetype: "*"

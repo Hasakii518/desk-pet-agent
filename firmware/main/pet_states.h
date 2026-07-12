@@ -24,6 +24,11 @@ pet_state_t pet_state_cycle(void);
 /* 设备级：链路断开 / 恢复。断开时强制 disconnected 并记住上一态。 */
 void pet_state_set_disconnected(bool disconnected);
 
+/* 协议字符串 ↔ 枚举映射 */
+pet_state_t    pet_state_from_string(const char *str);
+const char    *pet_state_to_string(pet_state_t st);
+agent_source_t pet_source_from_string(const char *str);
+
 #ifdef __cplusplus
 }
 #endif

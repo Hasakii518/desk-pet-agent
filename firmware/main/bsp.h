@@ -36,6 +36,20 @@ void bsp_display_set_on(bool on);
 /* 设置面板亮度（SH8601 0x51 命令，0~255）。注意别传 0，否则 AMOLED 熄灭。 */
 void bsp_set_brightness(uint8_t level);
 
+/* FreeType emoji fallback font（Noto Emoji Regular, 24px bitmap）。 */
+lv_font_t *bsp_emoji_font(void);
+
+/* CJK 字体：从 Flash 中的 cjk.ttf 用 FreeType 渲染指定 size。
+ * 返回 NULL 表示该尺寸未加载（cjk.ttf 不存在或 FreeType 失败）。
+ * 上层调用者自行 fallback 到内置蒙纳字体。 */
+lv_font_t *bsp_cjk_font(int size);
+
+/* 通知正文用字体：优先 CJK 28px，不存在时回退 montserrat 28。 */
+lv_font_t *bsp_body_font(void);
+
+/* 设置 LVGL 显示刷新周期（ms）。16≈60Hz，33≈30Hz。 */
+void bsp_set_refr_period(uint32_t period_ms);
+
 #ifdef __cplusplus
 }
 #endif

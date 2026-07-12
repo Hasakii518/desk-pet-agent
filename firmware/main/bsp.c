@@ -6,6 +6,9 @@
  */
 #include "bsp.h"
 #include "ui_common.h"
+#include "font_fs.h"
+#include "noto_emoji.h"
+#include "cjk_font.h"
 
 #include "esp_log.h"
 #include "esp_check.h"
@@ -189,6 +192,9 @@ static void panel_set_madctl(uint8_t val)
     esp_lcd_panel_io_tx_param(s_io, cmd, &val, 1);
 }
 
+static lv_font_t *s_emoji_font;
+static lv_font_t *s_cjk_14, *s_cjk_16, *s_cjk_20, *s_cjk_24, *s_cjk_28;
+
 static void init_lvgl(void)
 {
     ESP_LOGI(TAG, "Init LVGL port");
@@ -211,11 +217,44 @@ static void init_lvgl(void)
         },
     };
     s_disp = lvgl_port_add_disp(&disp_cfg);
+    if (!s_disp) {
+        ESP_LOGE(TAG, "lvgl_port_add_disp failed — check PSRAM / buffer_size");
+        return;
+    }
 
     /* 2 像素对齐刷新区，消除翻页撕裂 */
     lv_display_add_event_cb(s_disp, align_area_cb, LV_EVENT_INVALIDATE_AREA, NULL);
     /* 复位镜像方向为 0xC0（旋转 180°），修正反向显示 */
     panel_set_madctl(0xC0);
+
+    /* FreeType emoji fallback font */
+    font_fs_init();
+    font_fs_add("emoji.ttf", emoji_ttf_data, emoji_ttf_len);
+    s_emoji_font = lv_freetype_font_create("M:emoji.ttf",
+                          LV_FREETYPE_FONT_RENDER_MODE_BITMAP,
+                          24, LV_FREETYPE_FONT_STYLE_NORMAL);
+    if (s_emoji_font) {
+        ESP_LOGI(TAG, "Emoji font loaded (%d bytes)", (int)emoji_ttf_len);
+    } else {
+        ESP_LOGW(TAG, "Emoji font failed to load");
+    }
+
+    /* CJK 字体：同 emoji 机制，从 cjk.ttf（占位，用户替换为真实 CJK TTF）*/
+    if (cjk_ttf_len > 0) {
+        font_fs_add("cjk.ttf", cjk_ttf_data, cjk_ttf_len);
+        ESP_LOGI(TAG, "CJK font registered (%d bytes)", (int)cjk_ttf_len);
+        const int sizes[] = {14, 16, 20, 24, 28};
+        lv_font_t **slots[] = {&s_cjk_14, &s_cjk_16, &s_cjk_20, &s_cjk_24, &s_cjk_28};
+        for (int i = 0; i < 5; i++) {
+            *slots[i] = lv_freetype_font_create("M:cjk.ttf",
+                          LV_FREETYPE_FONT_RENDER_MODE_BITMAP,
+                          sizes[i], LV_FREETYPE_FONT_STYLE_NORMAL);
+            if (*slots[i])
+                ESP_LOGI(TAG, "CJK font %dpx loaded", sizes[i]);
+        }
+    } else {
+        ESP_LOGW(TAG, "CJK font not available (0 bytes) — Chinese text will show as boxes");
+    }
 
     const lvgl_port_touch_cfg_t touch_cfg = {
         .disp = s_disp,
@@ -225,6 +264,36 @@ static void init_lvgl(void)
         s_touch_indev = lvgl_port_add_touch(&touch_cfg);
     else
         ESP_LOGW(TAG, "no touch controller; gestures disabled");
+}
+
+lv_font_t *bsp_emoji_font(void) { return s_emoji_font; }
+
+lv_font_t *bsp_cjk_font(int size)
+{
+    switch (size) {
+    case 14: return s_cjk_14;
+    case 16: return s_cjk_16;
+    case 20: return s_cjk_20;
+    case 24: return s_cjk_24;
+    case 28: return s_cjk_28;
+    default: return NULL;
+    }
+}
+
+lv_font_t *bsp_body_font(void)
+{
+    lv_font_t *cjk = bsp_cjk_font(28);
+    return cjk ? cjk : &lv_font_montserrat_28;
+}
+
+void bsp_set_refr_period(uint32_t period_ms)
+{
+    lv_display_t *disp = lv_display_get_default();
+    if (disp) {
+        lv_timer_set_period(lv_display_get_refr_timer(disp), period_ms);
+        ESP_LOGI(TAG, "Refresh rate set to %lu ms (~%d Hz)",
+                 (unsigned long)period_ms, 1000 / (int)period_ms);
+    }
 }
 
 void bsp_init(void)

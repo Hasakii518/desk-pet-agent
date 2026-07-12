@@ -1,5 +1,7 @@
 /* pet_states.c — 表情状态机实现 */
 #include "pet_states.h"
+#include "esp_log.h"
+#include <string.h>
 
 static pet_state_t    s_state  = PET_IDLE;
 static agent_source_t s_source = SRC_CLAUDE_CODE;
@@ -18,6 +20,7 @@ agent_source_t pet_source_get(void) { return s_source; }
 
 void pet_state_set(pet_state_t st, agent_source_t src)
 {
+    ESP_LOGI("pet", "state %d → %d  src=%d", (int)s_state, (int)st, (int)src);
     s_state  = st;
     s_source = src;
 }
@@ -46,4 +49,51 @@ void pet_state_set_disconnected(bool disconnected)
     } else if (s_state == PET_DISCONNECTED) {
         s_state = s_before_disconnect;
     }
+}
+
+pet_state_t pet_state_from_string(const char *str)
+{
+    if (!str) return PET_IDLE;
+
+    if (strcmp(str, "error")        == 0) return PET_ERROR;
+    if (strcmp(str, "permission")   == 0) return PET_PERMISSION;
+    if (strcmp(str, "notification") == 0) return PET_NOTIFICATION;
+    if (strcmp(str, "building")     == 0) return PET_BUILDING;
+    if (strcmp(str, "typing")       == 0) return PET_TYPING;
+    if (strcmp(str, "thinking")     == 0) return PET_THINKING;
+    if (strcmp(str, "speaking")     == 0) return PET_SPEAKING;
+    if (strcmp(str, "waiting")      == 0) return PET_WAITING;
+    if (strcmp(str, "happy")        == 0) return PET_HAPPY;
+    if (strcmp(str, "idle")         == 0) return PET_IDLE;
+    if (strcmp(str, "sleeping")     == 0) return PET_SLEEPING;
+    /* "disconnected" is never sent from bridge — it's local-only */
+    if (strcmp(str, "disconnected") == 0) return PET_DISCONNECTED;
+
+    return PET_IDLE;
+}
+
+const char *pet_state_to_string(pet_state_t st)
+{
+    switch (st) {
+    case PET_ERROR:         return "error";
+    case PET_PERMISSION:    return "permission";
+    case PET_NOTIFICATION:  return "notification";
+    case PET_BUILDING:      return "building";
+    case PET_TYPING:        return "typing";
+    case PET_THINKING:      return "thinking";
+    case PET_SPEAKING:      return "speaking";
+    case PET_WAITING:       return "waiting";
+    case PET_HAPPY:         return "happy";
+    case PET_IDLE:          return "idle";
+    case PET_SLEEPING:      return "sleeping";
+    case PET_DISCONNECTED:  return "disconnected";
+    default:                return "idle";
+    }
+}
+
+agent_source_t pet_source_from_string(const char *str)
+{
+    if (str && strcmp(str, "workbuddy") == 0) return SRC_WORKBUDDY;
+    /* default / "claude-code" / unknown */
+    return SRC_CLAUDE_CODE;
 }

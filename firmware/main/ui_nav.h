@@ -27,6 +27,10 @@ void ui_nav_go_home(void);
 /* 当前是否停在主页（用于门控戳一下 / 下拉控制中心）。 */
 bool ui_nav_at_home(void);
 
+/* 重建会话页（session store 数量变化时调用）。
+ * 保留负一屏(index 0)和主页(index 1)，只重建 index 2+ 的会话页。 */
+void ui_nav_rebuild_sessions(void);
+
 /* 控制中心覆盖层 */
 void ui_nav_control_show(void);
 void ui_nav_control_hide(void);

@@ -2,7 +2,7 @@
 #include "ui_nav.h"
 #include "ui_common.h"
 #include "pet_states.h"
-#include "mock_data.h"
+#include "session_store.h"
 #include "ui_pet.h"
 #include "ui_negative.h"
 #include "ui_session.h"
@@ -101,7 +101,7 @@ bool ui_nav_control_visible(void) { return s_control_visible; }
 
 void ui_nav_create(lv_obj_t *scr)
 {
-    int n = mock_session_count();
+    int n = session_store_count();
     s_home_index = 1;                 /* 负一屏(0), 主页(1), 会话(2..n+1) */
     s_page_count = n + 2;
 
@@ -124,8 +124,10 @@ void ui_nav_create(lv_obj_t *scr)
      * 继续左滑翻更旧会话，最旧到边界停住（不循环）。 */
     ui_negative_create(s_pager);              /* index 0 */
     ui_pet_create(s_pager);                   /* index 1 = 主页 */
-    for (int i = 0; i < n; i++)               /* 最新在前，逐渐更旧 */
-        ui_session_create_page(s_pager, i);
+    for (int i = 0; i < n; i++) {             /* 最新在前，逐渐更旧 */
+        const stored_session_t *ss = session_store_get(i);
+        if (ss) ui_session_create_page(s_pager, ss);
+    }
 
     lv_obj_add_event_cb(s_pager, pager_scroll_end_cb, LV_EVENT_SCROLL_END, NULL);
 
@@ -137,4 +139,33 @@ void ui_nav_create(lv_obj_t *scr)
     s_control = ui_control_create(scr);
     lv_obj_set_pos(s_control, 0, -SCREEN_SIZE);  /* 初始停在屏上方外侧 */
     lv_obj_add_flag(s_control, LV_OBJ_FLAG_HIDDEN);
+}
+
+void ui_nav_rebuild_sessions(void)
+{
+    if (!s_pager) return;
+
+    int old_count = s_page_count;
+    int new_session_count = session_store_count();
+    int new_total = new_session_count + 2;  /* negative + pet + sessions */
+
+    /* 删除旧会话页（index 2..old_count-1，从后往前删避免 index 偏移）*/
+    for (int i = old_count - 1; i > s_home_index; i--) {
+        lv_obj_t *child = lv_obj_get_child(s_pager, i);
+        if (child) lv_obj_delete(child);
+    }
+
+    /* 创建新会话页 */
+    for (int i = 0; i < new_session_count; i++) {
+        const stored_session_t *ss = session_store_get(i);
+        if (ss) ui_session_create_page(s_pager, ss);
+    }
+
+    s_page_count = new_total;
+
+    /* 如果当前滚动位置超出新范围，吸附到最后一页 */
+    int cur = current_page();
+    if (cur >= new_total) {
+        lv_obj_scroll_to_x(s_pager, (new_total - 1) * PAGE_W, LV_ANIM_ON);
+    }
 }

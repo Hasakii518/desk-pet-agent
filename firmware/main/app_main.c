@@ -22,6 +22,8 @@
 #include "ui_pet.h"
 #include "ui_nav.h"
 #include "ui_control.h"
+#include "serial_protocol.h"
+#include "session_store.h"
 
 static const char *TAG = "app";
 
@@ -59,42 +61,35 @@ static void dispatch(gesture_t g)
     }
 }
 
-/* -------- 手势轮询：直读触控 IC，绕过 LVGL indev 采样 --------
- * 显示刷新保持 60fps（LV_DEF_REFR_PERIOD=16ms），触摸每秒读 200 次
- * （5ms 间隔），极快滑也有采样点，且不拖累显示帧率。
+/* -------- 手势轮询：读取 LVGL indev 缓存的触控状态，不再直读 I2C --------
+ * CST816 的坐标由 LVGL indev（INT 驱动 + EVENT 模式）读取。本定时器只
+ * 从 indev 缓存取最新坐标做手势分类，消除冗余的 I2C 读取。
  *
- * 注意：这跟 LVGL indev / pager 原生滚动**共用一个触控 IC**，每次 read_data
- * 只是从 IC 寄存器取最新坐标，读后并不清空硬件寄存器，LVGL 下一次读同样能拿
- * 到数据——两者串行在同一个 LVGL 任务里执行，不存在竞态。 */
+ * 注意：LVGL indev 的 get_coordinates 已应用 tp_cfg.mirror_y=1（y = y_max - y），
+ * 坐标与之前手动镜像一致，无需额外翻转。 */
 static bool              s_was_pressed;
 static int16_t           s_last_x, s_last_y;
 
-static void reset_idle(void);
+void app_reset_idle(void);
 
 static void gesture_poll_cb(lv_timer_t *t)
 {
     (void)t;
-    esp_lcd_touch_handle_t tp = bsp_touch_handle();
-    if (!tp) return;
+    lv_indev_t *indev = bsp_touch_indev();
+    if (!indev) return;
 
-    uint16_t x = 0, y = 0;
-    uint8_t  pts = 0;
-    esp_lcd_touch_point_data_t pt = {};
-    esp_lcd_touch_read_data(tp);
-    esp_lcd_touch_get_data(tp, &pt, &pts, 1);
-    x = pt.x;
-    y = pt.y;
+    lv_point_t pt;
+    lv_indev_get_point(indev, &pt);
+    lv_indev_state_t state = lv_indev_get_state(indev);
 
-    if (pts > 0) {
-        reset_idle();
-        /* 应用触摸镜像（同 bsp.c touch_cfg.mirror_y=1），否则 y 轴方向反 */
-        y = SCREEN_SIZE - 1 - y;
+    if (state == LV_INDEV_STATE_PRESSED) {
+        app_reset_idle();
         if (!s_was_pressed) {
             s_was_pressed = true;
-            gesture_press((int16_t)x, (int16_t)y);
+            gesture_press(pt.x, pt.y);
         }
-        s_last_x = (int16_t)x;
-        s_last_y = (int16_t)y;
+        s_last_x = pt.x;
+        s_last_y = pt.y;
     } else if (s_was_pressed) {   /* 刚抬起 */
         s_was_pressed = false;
         gesture_t g = gesture_release(s_last_x, s_last_y);
@@ -105,7 +100,7 @@ static void gesture_poll_cb(lv_timer_t *t)
      * 在没有正在跟踪的触摸时，读手势码兜底。寄存器读后自清，不会重复触发。 */
     if (!s_was_pressed) {
         int raw = bsp_touch_read_gesture();
-        if (raw > 0) reset_idle();
+        if (raw > 0) app_reset_idle();
         gesture_t g = GESTURE_NONE;
         switch (raw) {
         case 0x01: g = GESTURE_UP;    break;   /* IC 上报「上滑」*/
@@ -117,6 +112,17 @@ static void gesture_poll_cb(lv_timer_t *t)
         }
         if (g != GESTURE_NONE) dispatch(g);
     }
+}
+
+/* -------- 动态刷新率：活跃→30Hz(33ms)，空闲→15Hz(67ms) -------- */
+static void dyn_fps_cb(lv_timer_t *t)
+{
+    (void)t;
+    pet_state_t st = pet_state_get();
+    bool has_notif = session_store_has_notification();
+    bool active = (st != PET_IDLE && st != PET_SLEEPING && st != PET_DISCONNECTED)
+                  || has_notif;
+    bsp_set_refr_period(active ? 33 : 67);
 }
 
 /* -------- 自动休眠：60s 无触摸 / 无有效事件则息屏 --------
@@ -132,7 +138,7 @@ static int   s_idle_sec;            /* 累计空闲秒数 */
 
 #define SLEEP_TIMEOUT_SEC  60
 
-static void reset_idle(void)
+void app_reset_idle(void)
 {
     s_idle_sec = 0;
     /* 自动休眠熄屏后，任意触摸唤醒 */
@@ -164,7 +170,7 @@ static void boot_key_poll_cb(lv_timer_t *t)
         s_boot_off = !s_boot_off;
         s_display_sleep = false;
         bsp_display_set_on(!s_boot_off);
-        reset_idle();
+        app_reset_idle();
         ESP_LOGI(TAG, "BOOT -> display %s", s_boot_off ? "OFF" : "ON");
     }
     prev_high = level;
@@ -190,8 +196,10 @@ static void build_ui(void)
 
     ui_nav_create(scr);
 
-    /* 手势轮询 10ms：直读触控 IC */
+    /* 手势轮询 10ms：读 LVGL indev 缓存（无 I2C 直读）*/
     lv_timer_create(gesture_poll_cb, 10, NULL);
+    /* 动态刷新率：2s 检查 pet 状态，活跃 30Hz / 空闲 15Hz */
+    lv_timer_create(dyn_fps_cb, 2000, NULL);
     /* 休眠计时：每秒累加，60s 无操作自动息屏 */
     lv_timer_create(sleep_tick_cb, 1000, NULL);
     /* BOOT 键轮询 40ms（去抖足够）*/
@@ -207,6 +215,8 @@ void app_main(void)
     boot_key_init();
 
     if (bsp_lvgl_lock(-1)) {
+        serial_protocol_init();
+        session_store_seed_mock();   /* 初始数据：bridge 连接前可见 3 条会话 */
         build_ui();
         bsp_lvgl_unlock();
     }

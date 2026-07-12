@@ -1,12 +1,14 @@
 /* ui_control.c — ④ 控制中心（下拉覆盖层）
  *
- * 3 列 × 2 行 tile：WiFi / 蓝牙 / 设置 / 亮度 / 勿扰 / 传输。
+ * 3 列 × 3 行 tile：WiFi / 蓝牙 / 设置 / 亮度 / 勿扰 / 传输 / 刷新率。
  * 点击 tile 切换本地状态；长按 tile 进入二级菜单（浮窗），点空白（遮罩）返回上级。
  * 亮度二级菜单含竖向亮度条，实际调节面板亮度（SH8601 0x51），最低不熄灭。
+ * 刷新率 Auto/30Hz/15Hz 切换 LVGL 显示刷新周期。
  */
 #include "ui_control.h"
 #include "ui_common.h"
 #include "bsp.h"
+#include <string.h>
 
 /* 每个 tile 的状态类型 */
 typedef enum { TILE_TOGGLE, TILE_ACTION, TILE_CYCLE, TILE_BRIGHTNESS } tile_kind_t;
@@ -26,7 +28,7 @@ typedef struct {
     bool        lp;        /* long-press 已触发，抑制随后的 CLICKED */
 } tile_t;
 
-static tile_t s_tiles[6];
+static tile_t s_tiles[7];
 static lv_obj_t *s_root;    /* 控制中心根，二级菜单浮窗挂这里 */
 static lv_obj_t *s_submenu; /* 当前二级菜单遮罩，NULL=未开 */
 
@@ -305,8 +307,18 @@ static void tile_event_cb(lv_event_t *e)
         if (t->lp) { t->lp = false; return; }   /* 长按已开菜单，忽略本次 CLICKED */
         switch (t->kind) {
         case TILE_TOGGLE: t->on = !t->on; break;
-        case TILE_CYCLE:  t->level = (t->level + 1) % 3; break;
-        case TILE_BRIGHTNESS: break;            /* 亮度由二级菜单控制 */
+        case TILE_CYCLE: {
+            int n = 0; while (n < 3 && t->levels[n]) n++;
+            t->level = (t->level + 1) % n;
+            /* Refresh tile: 手动设置 LVGL 刷新率 */
+            if (t->levels[0] && strcmp(t->levels[0], "Auto") == 0) {
+                if (t->level == 0)      bsp_set_refr_period(33);  /* Auto → 30Hz 起步 */
+                else if (t->level == 1) bsp_set_refr_period(33);  /* 30Hz */
+                else                    bsp_set_refr_period(67);  /* 15Hz */
+            }
+            break;
+        }
+        case TILE_BRIGHTNESS: break;
         case TILE_ACTION: break;
         }
         tile_render(t);
@@ -381,10 +393,10 @@ lv_obj_t *ui_control_create(lv_obj_t *parent)
     lv_obj_set_style_text_opa(title, LV_OPA_60, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, EDGE_SAFE + 20);
 
-    /* 3x2 网格，居中 */
+    /* 3x3 网格（7 tile），居中 */
     lv_obj_t *grid = lv_obj_create(root);
     lv_obj_remove_style_all(grid);
-    lv_obj_set_size(grid, 3 * 108 + 2 * SP_SM, 2 * 108 + SP_SM);
+    lv_obj_set_size(grid, 3 * 108 + 2 * SP_SM, 3 * 108 + 2 * SP_SM);
     lv_obj_center(grid);
     lv_obj_set_flex_flow(grid, LV_FLEX_FLOW_ROW_WRAP);
     lv_obj_set_flex_align(grid, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -399,8 +411,9 @@ lv_obj_t *ui_control_create(lv_obj_t *parent)
     s_tiles[3] = (tile_t){ .icon = LV_SYMBOL_EYE_OPEN,  .label = "Brightness", .kind = TILE_BRIGHTNESS };
     s_tiles[4] = (tile_t){ .icon = LV_SYMBOL_MUTE,      .label = "Do Not Dist",.kind = TILE_TOGGLE, .on = false, .on_color = COLOR_AMBER };
     s_tiles[5] = (tile_t){ .icon = LV_SYMBOL_USB,       .label = "Transport",  .kind = TILE_CYCLE,  .level = 0, .levels = {"Serial","BLE","WiFi"} };
+    s_tiles[6] = (tile_t){ .icon = LV_SYMBOL_REFRESH,   .label = "Refresh",    .kind = TILE_CYCLE,  .level = 0, .levels = {"Auto","30Hz","15Hz"} };
 
-    for (int i = 0; i < 6; i++)
+    for (int i = 0; i < 7; i++)
         make_tile(grid, &s_tiles[i]);
 
     ui_hint(root, "Tap toggle  Long-press: menu  Swipe up: home");
