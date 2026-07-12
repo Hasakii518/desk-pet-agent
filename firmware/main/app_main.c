@@ -69,6 +69,7 @@ static void dispatch(gesture_t g)
  * 坐标与之前手动镜像一致，无需额外翻转。 */
 static bool              s_was_pressed;
 static int16_t           s_last_x, s_last_y;
+static int               s_last_raw_gesture;   /* 防 CST820 手势寄存器读后不清零 */
 
 void app_reset_idle(void);
 static void dyn_fps_cb(lv_timer_t *t);
@@ -98,10 +99,12 @@ static void gesture_poll_cb(lv_timer_t *t)
     }
 
     /* 极快滑时 CST816S 可能不报坐标点，直接把方向写入手势寄存器 0x01。
-     * 在没有正在跟踪的触摸时，读手势码兜底。寄存器读后自清，不会重复触发。 */
+     * 在没有正在跟踪的触摸时，读手势码兜底。
+     * CST820 寄存器读后不一定清零，用 last_raw 过滤同一手势码的重复上报。 */
     if (!s_was_pressed) {
         int raw = bsp_touch_read_gesture();
-        if (raw > 0) app_reset_idle();
+        if (raw > 0 && raw != s_last_raw_gesture) app_reset_idle();
+        s_last_raw_gesture = raw;
         gesture_t g = GESTURE_NONE;
         switch (raw) {
         case 0x01: g = GESTURE_UP;    break;   /* IC 上报「上滑」*/
