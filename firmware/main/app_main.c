@@ -196,6 +196,10 @@ static void boot_key_init(void)
 
 static void build_ui(void)
 {
+    if (!lv_display_get_default()) {
+        ESP_LOGE(TAG, "No display — skipping UI build");
+        return;
+    }
     lv_obj_t *scr = lv_screen_active();
     lv_obj_set_style_bg_color(scr, COLOR_VOID, 0);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
