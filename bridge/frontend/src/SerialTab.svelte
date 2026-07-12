@@ -1,10 +1,18 @@
 <script>
   let status = { connected: false, port: '', tx_frames: 0, rx_lines: 0, suspended: false }
   let events = []
+  let follow = true        // 自动跟随最新日志（用户上翻阅读时自动关闭）
   let autoRefresh
   let monitorOnly = false  // true = 只看设备上行（模拟 idf.py monitor）
   let sendText = ''
   let sending = false
+  let logEl
+
+  function lastTs() {
+    let m = 0
+    for (const e of events) if (e.ts > m) m = e.ts
+    return m
+  }
 
   async function loadStatus() {
     try {
@@ -13,16 +21,33 @@
     } catch (e) {}
   }
 
-  async function loadEvents() {
+  // 首屏：拉最新 200 行
+  async function loadInitial() {
     try {
       const r = await fetch('/api/serial/log?limit=200')
       events = await r.json()
     } catch (e) {}
   }
 
+  // 增量：只拉 lastTs 之后的新行并追加，不重排可视区，方便上翻阅读旧日志
+  async function poll() {
+    try {
+      const r = await fetch('/api/serial/log?since=' + lastTs() + '&limit=200')
+      const fresh = await r.json()
+      if (fresh.length) {
+        const seen = new Set(events.map(e => e.ts + e.dir))
+        const add = fresh.filter(e => !seen.has(e.ts + e.dir))
+        if (add.length) {
+          events = events.concat(add)
+          if (events.length > 1000) events = events.slice(-1000)
+        }
+      }
+    } catch (e) {}
+  }
+
   loadStatus()
-  loadEvents()
-  autoRefresh = setInterval(() => { loadStatus(); loadEvents() }, 2000)
+  loadInitial()
+  autoRefresh = setInterval(() => { loadStatus(); poll() }, 2000)
 
   async function disconnect() {
     await fetch('/api/serial/disconnect', { method: 'POST' })
@@ -41,7 +66,7 @@
     try {
       await fetch('/api/serial/send', { method: 'POST', body: t })
       sendText = ''
-      loadEvents()
+      poll()
     } catch (e) {}
     sending = false
   }
@@ -65,10 +90,21 @@
 
   $: filteredEvents = monitorOnly ? events.filter(e => e.dir === 'rx') : events
 
-  let logEl
-  $: if (logEl && filteredEvents.length) {
-    const nearBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 60
-    if (nearBottom) setTimeout(() => logEl.scrollTop = logEl.scrollHeight, 50)
+  function nearBottom() {
+    if (!logEl) return true
+    return logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40
+  }
+  // 用户滚动时：贴底则继续跟随，上翻则暂停跟随（不再被拽回底部）
+  function onScroll() {
+    follow = nearBottom()
+  }
+  function jumpToBottom() {
+    follow = true
+    if (logEl) logEl.scrollTop = logEl.scrollHeight
+  }
+  // 仅当 follow 为真（用户没在上翻阅读）时，新数据到达才贴底
+  $: if (logEl && follow && filteredEvents.length) {
+    setTimeout(() => { if (logEl) logEl.scrollTop = logEl.scrollHeight }, 30)
   }
 </script>
 
@@ -89,6 +125,10 @@
       <input type="checkbox" bind:checked={monitorOnly} />
       <span class="monitor-label">monitor</span>
     </label>
+    <label class="monitor-toggle" title="auto-scroll to newest line">
+      <input type="checkbox" bind:checked={follow} />
+      <span class="monitor-label">follow</span>
+    </label>
     <div class="spacer"></div>
     {#if status.suspended}
       <button class="btn connect" on:click={connect}>Connect</button>
@@ -98,7 +138,7 @@
   </div>
 
   <!-- 日志列表 -->
-  <div class="log-list" bind:this={logEl}>
+  <div class="log-list" bind:this={logEl} on:scroll={onScroll}>
     {#each filteredEvents as ev (ev.ts + ev.dir)}
       <div class="log-line" class:tx={ev.dir === 'tx'} class:rx={ev.dir === 'rx'}>
         <span class="ts">{fmtTime(ev.ts)}</span>
@@ -110,6 +150,9 @@
       <div class="empty">{monitorOnly ? 'No device output yet. Is the device running?' : 'No serial events yet.'}</div>
     {/if}
   </div>
+  {#if !follow}
+    <button class="jump-btn" on:click={jumpToBottom} title="jump to newest line">↓ 回到底部</button>
+  {/if}
 
   <!-- 调试下发 -->
   <div class="send-bar">
@@ -132,6 +175,7 @@
     flex-direction: column;
     height: 100%;
     overflow: hidden;
+    position: relative;
   }
   .serial-bar {
     display: flex;
@@ -232,4 +276,20 @@
   .send-btn:hover:not(:disabled) { background: var(--accent-dim); border-color: var(--accent); }
 
   .empty { color: var(--text-dim); padding: 12px; font-style: italic; }
+
+  .jump-btn {
+    position: absolute;
+    right: 16px;
+    bottom: 60px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-family: var(--mono);
+    border-radius: 12px;
+    cursor: pointer;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    background: var(--bg-elev);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  }
+  .jump-btn:hover { background: var(--accent-dim); }
 </style>

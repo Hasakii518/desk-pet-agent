@@ -30,6 +30,15 @@
     if (container) container.scrollTop = container.scrollHeight
   }
 
+  // 用户滚动时：贴底则继续自动滚动，上翻则暂停（不被新日志拽回底部）
+  function nearBottom() {
+    if (!container) return true
+    return container.scrollHeight - container.scrollTop - container.clientHeight < 40
+  }
+  function onScroll() {
+    autoScroll = nearBottom()
+  }
+
   loadRecent()
   connect()
 
@@ -55,7 +64,7 @@
     <label><input type="checkbox" bind:checked={autoScroll}> auto-scroll</label>
     <span class="count">{filtered.length} shown / {logs.length} total</span>
   </div>
-  <div class="logs-list" bind:this={container}>
+  <div class="logs-list" bind:this={container} on:scroll={onScroll}>
     {#each filtered as e (e.ts + '-' + e.msg.slice(0,20))}
       <div class="log-line {levelClass(e.level)}">
         <span class="ts">{fmtTs(e.ts)}</span>

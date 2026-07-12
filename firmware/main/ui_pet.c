@@ -3,7 +3,8 @@
 #include "ui_common.h"
 #include "pet_states.h"
 #include "clawd_assets.h"
-#include "mock_data.h"
+#include "session_store.h"
+#include "bsp.h"
 
 /* 桌宠基准缩放：GIF 素材 250px，整屏居中显示 ≈390px。
  * scale = 390*256/250 ≈ 399。 */
@@ -23,6 +24,13 @@ static lv_obj_t *s_bubble;
 static lv_obj_t *s_bubble_title;
 static lv_obj_t *s_bubble_body;
 static lv_obj_t *s_status_lbl;
+static lv_obj_t *s_modal;          /* 点击气泡放大的全屏浮层 */
+static lv_obj_t *s_modal_title;
+static lv_obj_t *s_modal_body;
+
+/* 前置声明 */
+static void bubble_click_cb(lv_event_t *e);
+static void modal_click_cb(lv_event_t *e);
 
 /* idle 呼吸动画（缩放）*/
 static void breath_cb(void *pet, int32_t v)
@@ -102,15 +110,71 @@ lv_obj_t *ui_pet_create(lv_obj_t *parent)
     lv_obj_set_style_pad_row(s_bubble, SP_XS, 0);
 
     s_bubble_title = lv_label_create(s_bubble);
-    lv_obj_set_style_text_font(s_bubble_title, FONT_T4, 0);
+    lv_obj_set_style_text_font(s_bubble_title,
+                    bsp_body_font(), 0);
 
     s_bubble_body = lv_label_create(s_bubble);
-    lv_obj_set_style_text_font(s_bubble_body, FONT_T3, 0);
+    /* CJK > emoji > montserrat 优先级 */
+    lv_font_t *body_font = bsp_cjk_font(28);
+    if (!body_font) body_font = bsp_emoji_font();
+    if (!body_font) body_font = (lv_font_t *)&lv_font_montserrat_28;
+    lv_obj_set_style_text_font(s_bubble_body, body_font, 0);
     lv_obj_set_style_text_color(s_bubble_body, COLOR_MIST, 0);
     lv_label_set_long_mode(s_bubble_body, LV_LABEL_LONG_DOT);
     lv_obj_set_width(s_bubble_body, 268);
 
     s_status_lbl = ui_hint(s_root, "");
+
+    /* 点击气泡 → 放大到全屏居中展示完整通知内容 */
+    lv_obj_add_flag(s_bubble, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_bubble, bubble_click_cb, LV_EVENT_CLICKED, NULL);
+
+    /* 全屏浮层（初始隐藏）：暗色遮罩 + 居中卡片 + 标题 + 正文 */
+    s_modal = lv_obj_create(s_root);
+    lv_obj_remove_style_all(s_modal);
+    lv_obj_set_size(s_modal, SCREEN_SIZE, SCREEN_SIZE);
+    lv_obj_set_style_bg_color(s_modal, COLOR_VOID, 0);
+    lv_obj_set_style_bg_opa(s_modal, LV_OPA_90, 0);
+    lv_obj_set_style_border_width(s_modal, 0, 0);
+    lv_obj_add_flag(s_modal, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_modal, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_modal, modal_click_cb, LV_EVENT_CLICKED, NULL);
+
+    /* 卡片内容区域 */
+    lv_obj_t *card = lv_obj_create(s_modal);
+    lv_obj_remove_style_all(card);
+    lv_obj_set_size(card, 380, LV_SIZE_CONTENT);
+    lv_obj_center(card);
+    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(card, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(card, SP_MD, 0);
+    lv_obj_set_style_bg_color(card, COLOR_STONE, 0);
+    lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(card, RAD_CARD_L, 0);
+    lv_obj_set_style_pad_all(card, SP_MD, 0);
+
+    s_modal_title = lv_label_create(card);
+    lv_obj_set_style_text_font(s_modal_title,
+                    bsp_body_font(), 0);
+    lv_label_set_long_mode(s_modal_title, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(s_modal_title, 340);
+
+    s_modal_body = lv_label_create(card);
+    lv_font_t *modal_font = bsp_cjk_font(28);
+    if (!modal_font) modal_font = bsp_emoji_font();
+    if (!modal_font) modal_font = (lv_font_t *)&lv_font_montserrat_28;
+    lv_obj_set_style_text_font(s_modal_body, modal_font, 0);
+    lv_obj_set_style_text_color(s_modal_body, COLOR_MIST, 0);
+    lv_label_set_long_mode(s_modal_body, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(s_modal_body, 340);
+
+    /* 底部提示：点空白处关闭 */
+    lv_obj_t *hint = lv_label_create(s_modal);
+    lv_label_set_text(hint, "Tap blank to close");
+    lv_obj_set_style_text_font(hint, FONT_T4, 0);
+    lv_obj_set_style_text_color(hint, COLOR_MIST, 0);
+    lv_obj_set_style_text_opa(hint, LV_OPA_40, 0);
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -EDGE_SAFE);
 
     ui_pet_refresh();
     return s_root;
@@ -139,13 +203,21 @@ void ui_pet_refresh(void)
 
     ui_halo_apply(s_halo, st, src);
 
-    if (st == PET_NOTIFICATION) {
-        const mock_notification_t *n = mock_current_notification();
+    /* 只要 notify 帧带了 title/text 就显示气泡，不限 PET_NOTIFICATION 态。
+     * bridge 下发的 typing/building/thinking 等都携带弹窗内容。 */
+    if (session_store_has_notification()) {
+        const char *notif_title = session_store_notif_title();
+        agent_source_t notif_src = session_store_notif_source();
+        const char *notif_text = session_store_notif_text();
+
         lv_obj_clear_flag(s_bubble, LV_OBJ_FLAG_HIDDEN);
         lv_label_set_text_fmt(s_bubble_title, "%s  %s",
-                              LV_SYMBOL_BELL, n->session_name);
-        lv_obj_set_style_text_color(s_bubble_title, ui_source_color(n->source), 0);
-        lv_label_set_text(s_bubble_body, n->text);
+                              LV_SYMBOL_BELL,
+                              notif_title ? notif_title : "Claude");
+        lv_obj_set_style_text_color(s_bubble_title,
+                                    ui_source_color(notif_src), 0);
+        lv_label_set_text(s_bubble_body,
+                          notif_text ? notif_text : "");
     } else {
         lv_obj_add_flag(s_bubble, LV_OBJ_FLAG_HIDDEN);
     }
@@ -156,6 +228,34 @@ void ui_pet_refresh(void)
 void ui_pet_poke(void)
 {
     poke_anim();
-    pet_state_cycle();
+    /* 不再循环 mock state——真实 state 由串口协议驱动 */
     ui_pet_refresh();
+}
+
+/* ---- 气泡点击放大 ---- */
+
+static void bubble_click_cb(lv_event_t *e)
+{
+    (void)e;
+    if (!s_modal) return;
+    if (!session_store_has_notification()) return;
+
+    const char *title = session_store_notif_title();
+    agent_source_t src = session_store_notif_source();
+    const char *text  = session_store_notif_text();
+
+    lv_label_set_text_fmt(s_modal_title, "%s  %s",
+                          LV_SYMBOL_BELL,
+                          title ? title : "Claude");
+    lv_obj_set_style_text_color(s_modal_title, ui_source_color(src), 0);
+
+    lv_label_set_text(s_modal_body, text ? text : "");
+    lv_obj_clear_flag(s_modal, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void modal_click_cb(lv_event_t *e)
+{
+    /* 仅当直接点在遮罩（空白）上才关闭；点在卡片 / 正文 / 提示上不关 */
+    if (lv_event_get_target(e) == s_modal && s_modal)
+        lv_obj_add_flag(s_modal, LV_OBJ_FLAG_HIDDEN);
 }

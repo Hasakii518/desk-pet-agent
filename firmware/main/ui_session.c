@@ -5,12 +5,21 @@
  */
 #include "ui_session.h"
 #include "ui_common.h"
-#include "mock_data.h"
+#include "session_store.h"
+#include "bsp.h"
+#include <time.h>
 
-/* 会话页专用字号：比全局 T 字号小一档，保证一屏放得下更多历史，且落在圆内。 */
-#define SESS_FONT_NAME  (&lv_font_montserrat_24)
-#define SESS_FONT_BODY  (&lv_font_montserrat_16)
-#define SESS_FONT_SMALL (&lv_font_montserrat_14)
+/* CJK 字体：优先 FreeType，失败则回退 montserrat（ASCII 可渲染）*/
+static inline const lv_font_t *cjx(int sz) {
+    lv_font_t *f = bsp_cjk_font(sz);
+    return f ? f : (sz <= 14 ? &lv_font_montserrat_14 :
+                    sz <= 16 ? &lv_font_montserrat_16 :
+                    sz <= 24 ? &lv_font_montserrat_24 :
+                               &lv_font_montserrat_24);
+}
+#define SESS_FONT_NAME  (cjx(32))
+#define SESS_FONT_BODY  (cjx(24))
+#define SESS_FONT_SMALL (cjx(20))
 #define SESS_W          300   /* 内容宽度，居中落在圆内 */
 
 static lv_obj_t *divider(lv_obj_t *parent)
@@ -34,9 +43,10 @@ static lv_obj_t *body_label(lv_obj_t *parent, const char *txt, const lv_font_t *
     return l;
 }
 
-lv_obj_t *ui_session_create_page(lv_obj_t *parent, int index)
+lv_obj_t *ui_session_create_page(lv_obj_t *parent,
+                                 const stored_session_t *session)
 {
-    const mock_session_t *ss = &mock_sessions()[index];
+    const stored_session_t *ss = session;
 
     /* 页根：满屏、纯黑、不可滚（滚动交给内部 content）*/
     lv_obj_t *root = lv_obj_create(parent);
@@ -82,8 +92,17 @@ lv_obj_t *ui_session_create_page(lv_obj_t *parent, int index)
     lv_obj_set_style_text_font(name, SESS_FONT_NAME, 0);
     lv_obj_set_style_text_color(name, COLOR_MIST, 0);
 
+    /* 时间戳转 HH:MM */
+    char time_str[8];
+    {
+        time_t sec = ss->ts / 1000;
+        struct tm tm;
+        localtime_r(&sec, &tm);
+        snprintf(time_str, sizeof(time_str), "%02d:%02d",
+                 tm.tm_hour, tm.tm_min);
+    }
     lv_obj_t *time = lv_label_create(head);
-    lv_label_set_text(time, ss->time);
+    lv_label_set_text(time, time_str);
     lv_obj_set_style_text_font(time, SESS_FONT_SMALL, 0);
     lv_obj_set_style_text_color(time, COLOR_MIST, 0);
     lv_obj_set_style_text_opa(time, LV_OPA_40, 0);
@@ -92,12 +111,13 @@ lv_obj_t *ui_session_create_page(lv_obj_t *parent, int index)
 
     /* 最新回复 */
     body_label(content, "Latest reply:", SESS_FONT_SMALL, COLOR_MIST);
-    body_label(content, ss->last_reply, SESS_FONT_BODY, COLOR_MIST);
+    body_label(content, ss->last_reply[0] ? ss->last_reply : "—",
+               SESS_FONT_BODY, COLOR_MIST);
 
     divider(content);
 
     /* 下一步 pill（mint）*/
-    if (ss->next_step) {
+    if (ss->next_step[0]) {
         lv_obj_t *pill = lv_obj_create(content);
         lv_obj_set_size(pill, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
         lv_obj_set_style_radius(pill, LV_RADIUS_CIRCLE, 0);
@@ -119,7 +139,7 @@ lv_obj_t *ui_session_create_page(lv_obj_t *parent, int index)
     /* 历史 */
     body_label(content, "History:", SESS_FONT_SMALL, COLOR_MIST);
     for (int i = 0; i < ss->history_len; i++) {
-        const mock_msg_t *m = &ss->history[i];
+        const storable_msg_t *m = &ss->history[i];
         lv_color_t c = m->from_user ? COLOR_MIST : ui_source_color(ss->source);
         lv_obj_t *l = body_label(content, m->text, SESS_FONT_BODY, c);
         if (!m->from_user) lv_obj_set_style_text_opa(l, LV_OPA_90, 0);
@@ -144,7 +164,7 @@ lv_obj_t *ui_session_create_page(lv_obj_t *parent, int index)
 
     lv_obj_t *back_ico = lv_label_create(root);
     lv_label_set_text(back_ico, LV_SYMBOL_UP);
-    lv_obj_set_style_text_font(back_ico, SESS_FONT_NAME, 0);
+    lv_obj_set_style_text_font(back_ico, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_color(back_ico, lv_color_white(), 0);
     lv_obj_set_style_text_opa(back_ico, LV_OPA_80, 0);
     lv_obj_clear_flag(back_ico, LV_OBJ_FLAG_CLICKABLE);

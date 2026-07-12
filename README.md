@@ -64,14 +64,23 @@ idf.py build flash monitor
 
 详见 [`firmware/README.md`](firmware/README.md)。
 
-### PC 端（规划中）
+### PC 端（bridge，已可用）
+
+bridge 把 Claude Code / WorkBuddy 活动采集并下发到 ESP32。详见 [`bridge/README.md`](bridge/README.md)。
+
+**构建发布包**（在有 Go + Node 的机器上）：
 
 ```bash
-# PC 端：采集 Agent 事件并下发到 ESP32
-cd bridge && npm install
-npm run install:hooks     # 向 Claude Code 注入钩子（可选）
-npm run dev               # 连上串口/设备，开始下发事件
+cd bridge && make release   # 前端 + agent/probe 全平台二进制 → bin/
 ```
+
+**对方机器一键安装**（无需 Go/Node）：
+
+- **Windows**：`powershell -ExecutionPolicy Bypass -File bridge/install/install.ps1`
+- **macOS / Linux**：`cd bridge && ./install/install.sh`（自动探测环境、自启、注册 hooks）
+
+配置与 token 统一在 `%APPDATA%\ClaudeWatch\`（Win）/ `~/.config/claudewatch\`（Mac·Linux），
+agent 读 `config.json`、token 缺失时自动生成。之后浏览器打开 `http://127.0.0.1:7777`。
 
 ## 目录与文档
 

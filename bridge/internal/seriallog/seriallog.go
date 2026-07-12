@@ -63,6 +63,29 @@ func (l *Log) Recent(limit int) []Event {
 	return out
 }
 
+// Since 返回 Ts 严格大于 sinceTs 的所有记录，按时间升序。
+// 供前端增量追加：只拉取上次之后新产生的行，避免整段重排抢滚动。
+func (l *Log) Since(sinceTs int64) []Event {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	total := l.pos
+	if l.full {
+		total = len(l.buf)
+	}
+
+	out := make([]Event, 0, 16)
+	// 从最旧一条按时间顺序遍历（满环时最旧在 l.pos），收集 ts > sinceTs
+	for i := 0; i < total; i++ {
+		idx := (l.pos + i) % len(l.buf)
+		e := l.buf[idx]
+		if e.Ts > sinceTs {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
 // Count 返回当前已缓存的记录数（最多 cap）。
 func (l *Log) Count() int {
 	l.mu.Lock()

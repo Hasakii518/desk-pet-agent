@@ -1,15 +1,15 @@
-# update.ps1 — 升级已部署的 claudewatch agent
+# update.ps1 - upgrade the deployed claudewatch agent
 #
-# 用法: 在 Windows PowerShell 中执行
+# Usage: run in Windows PowerShell
 #   powershell -ExecutionPolicy Bypass -File install/update.ps1
 #
-# 流程: taskkill 强杀 → 拷新 exe (失败则 rename 旧的再拷) → 重跑 install.ps1 起新 agent
+# Flow: taskkill forced kill -> copy new exe (fall back to rename trick if locked) -> re-run install.ps1 to start new agent
 
 $ErrorActionPreference = 'Continue'
 
 Write-Host '=== ClaudeWatch agent upgrade ===' -ForegroundColor Cyan
 
-# 1. taskkill 强杀所有 claudewatch.exe (跨会话)
+# 1. taskkill all claudewatch.exe (cross-session)
 $kill = & taskkill /F /IM claudewatch.exe 2>&1
 if ($LASTEXITCODE -eq 0) {
     Write-Host "[OK] killed running agent(s)"
@@ -18,16 +18,16 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "[OK] no running agent (taskkill exit $LASTEXITCODE)"
 }
 
-# 2. 从 WSL 拷新 exe
-$src = "\\wsl$\Ubuntu-24.04\home\tencent_go\projects\personal\claudewatch\bin\claudewatch.exe"
+# 2. copy new exe from repo bin/ (path derived from script location, not hardcoded)
+$src = Join-Path $PSScriptRoot '..\bin\claudewatch.exe'
 $dst = Join-Path $env:APPDATA 'ClaudeWatch\claudewatch.exe'
 if (-not (Test-Path $src)) {
     Write-Host "[X]  source not found: $src" -ForegroundColor Red
-    Write-Host '     build first in WSL: make agent-windows'
+    Write-Host '     build first: make agent-windows'
     exit 1
 }
 
-# 2a. 直接拷
+# 2a. direct copy
 $copied = $false
 try {
     Copy-Item $src $dst -Force -ErrorAction Stop
@@ -35,7 +35,7 @@ try {
     $copied = $true
 } catch {
     Write-Host "[!]  direct copy failed (file locked), trying rename trick..."
-    # 2b. rename 运行中的 exe 到 .old，再拷新的
+    # 2b. rename the running exe to .old, then copy the new one
     $old = "$dst.old"
     if (Test-Path $old) { Remove-Item $old -Force -ErrorAction SilentlyContinue }
     try {
@@ -43,7 +43,7 @@ try {
         Copy-Item $src $dst -Force -ErrorAction Stop
         Write-Host "[OK] renamed old exe to .old and copied new one"
         $copied = $true
-        # 尝试删 .old (可能仍被占用，失败就算了)
+        # try to delete .old (may still be locked; ignore failure)
         Start-Sleep -Seconds 1
         Remove-Item $old -Force -ErrorAction SilentlyContinue
     } catch {
@@ -54,6 +54,6 @@ try {
 
 if (-not $copied) { exit 1 }
 
-# 3. 重跑 install.ps1 (复用 token/防火墙/快捷方式，启动新 agent)
+# 3. re-run install.ps1 (reuse token / firewall / shortcut, start new agent)
 Write-Host ''
 & "$PSScriptRoot\install.ps1"

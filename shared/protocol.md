@@ -107,7 +107,7 @@ ESP32（设备）与 PC `bridge` 之间的通信。帧格式：**每行一条 JS
 | `SessionStart` | `thinking` | 同时发 `session` 快照 |
 | `UserPromptSubmit` | `typing` | `notify.text` = prompt 摘要 |
 | `PreToolUse` | `building` | `notify.title` = tool_name |
-| `PostToolUse` | `building` | `notify.title` = tool_name，`text` = 结果摘要 |
+| `PostToolUse` | `typing` | `notify.title` = tool_name，`text` = 结果摘要 |
 | `Notification` | `notification` | `notify.text` = message |
 | `Stop` | `happy` | 同时发 `session` 快照（lastReply = recap） |
 | `SessionEnd` | `idle` | 同时发 `session` 快照 |

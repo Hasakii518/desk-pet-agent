@@ -79,10 +79,11 @@ func mapHook(ev protocol.Event) (string, popup) {
 		lastToolBrief.Store(ev.SessionID, brief)
 		return "building", popup{title: ev.ToolName, text: brief}
 	case "PostToolUse":
+		// 工具执行完毕，Claude 正在处理结果并输出回复 → typing
 		if v, ok := lastToolBrief.Load(ev.SessionID); ok {
-			return "building", popup{title: ev.ToolName, text: v.(string) + " ✓"}
+			return "typing", popup{title: ev.ToolName, text: v.(string) + " ✓"}
 		}
-		return "building", popup{title: ev.ToolName, text: "Done"}
+		return "typing", popup{title: ev.ToolName, text: "Done"}
 	case "Notification":
 		return "notification", popup{title: "Notification", text: truncate(ev.Message, maxText)}
 	case "Stop":

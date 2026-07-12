@@ -13,6 +13,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -31,6 +33,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"claudewatch/internal/config"
 	"claudewatch/internal/doctor"
 	"claudewatch/internal/logbuf"
 	"claudewatch/internal/metrics"
@@ -42,14 +45,6 @@ import (
 	"claudewatch/internal/update"
 	"claudewatch/web"
 )
-
-func defaultDBPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "claudewatch.db"
-	}
-	return filepath.Join(home, ".local", "share", "claudewatch", "events.db")
-}
 
 // recentProbeState 记录最近一次 probe 事件的 cwd + ts，供 doctor 诊断用
 type recentProbeState struct {
@@ -75,16 +70,69 @@ func (r *recentProbeState) snapshot() (string, time.Time) {
 }
 
 func main() {
+	configPath := flag.String("config", config.DefaultPath(), "config file path (JSON)")
 	addr := flag.String("addr", ":7777", "listen address")
 	token := flag.String("token", os.Getenv("CLAUDEWATCH_TOKEN"), "auth token (default: $CLAUDEWATCH_TOKEN)")
-	dbPath := flag.String("db", "", "SQLite path (default: ~/.local/share/claudewatch/events.db)")
-	wslDistro := flag.String("wsl-distro", os.Getenv("WSL_DISTRO_NAME"), "WSL distro name (for UNC path access, e.g. Ubuntu-24.04)")
+	dbPath := flag.String("db", "", "SQLite path (default: config dir/events.db)")
+	wslDistro := flag.String("wsl-distro", os.Getenv("WSL_DISTRO_NAME"), "WSL distro name (for UNC path access)")
 	serialPort := flag.String("serial-port", envOr("CLAUDEWATCH_SERIAL_PORT", "auto"), "serial port path or 'auto' (env CLAUDEWATCH_SERIAL_PORT)")
 	enableBLE := flag.Bool("ble", false, "enable BLE transport (stub, frames dropped)")
 	flag.Parse()
 
+	// 记录被显式传入的 flag，用于「flag 显式 > 其它」
+	setFlags := map[string]bool{}
+	flag.Visit(func(f *flag.Flag) { setFlags[f.Name] = true })
+
+	// 加载配置文件（缺失不报错；解析失败仅告警）
+	fileCfg, _, err := config.Load(*configPath)
+	if err != nil {
+		log.Printf("config: parse %s failed: %v (ignored)", *configPath, err)
+	}
+
+	// 字符串字段解析优先级: flag(显式传入) > 环境变量 > 配置文件 > 内置默认
+	resolveStr := func(flagName, flagVal, envVal, fileVal, def string) string {
+		if setFlags[flagName] && flagVal != "" {
+			return flagVal
+		}
+		if envVal != "" {
+			return envVal
+		}
+		if fileVal != "" {
+			return fileVal
+		}
+		return def
+	}
+
+	*addr = resolveStr("addr", *addr, "", fileCfg.Addr, ":7777")
+	*serialPort = resolveStr("serial-port", *serialPort, os.Getenv("CLAUDEWATCH_SERIAL_PORT"), fileCfg.SerialPort, "auto")
+	*wslDistro = resolveStr("wsl-distro", *wslDistro, os.Getenv("WSL_DISTRO_NAME"), fileCfg.WSLDistro, "")
+	if !setFlags["ble"] {
+		*enableBLE = fileCfg.BLE
+	}
+
+	// token 解析: flag > env > 配置文件 > token 文件 > 自动生成并持久化
+	*token = resolveStr("token", *token, os.Getenv("CLAUDEWATCH_TOKEN"), fileCfg.Token, "")
+	if *token == "" {
+		if b, rerr := os.ReadFile(config.TokenPath()); rerr == nil {
+			*token = strings.TrimSpace(string(b))
+		}
+	}
+	if *token == "" {
+		*token = genToken()
+		_ = os.MkdirAll(config.Dir(), 0o755)
+		if werr := os.WriteFile(config.TokenPath(), []byte(*token), 0o600); werr != nil {
+			log.Printf("config: persist token failed: %v", werr)
+		} else {
+			log.Printf("config: generated + persisted token -> %s", config.TokenPath())
+		}
+	}
+
+	// db 路径: flag > 配置文件 > 默认(配置目录/events.db)
 	if *dbPath == "" {
-		*dbPath = defaultDBPath()
+		*dbPath = fileCfg.DB
+	}
+	if *dbPath == "" {
+		*dbPath = filepath.Join(config.Dir(), "events.db")
 	}
 	if err := os.MkdirAll(filepath.Dir(*dbPath), 0o755); err != nil {
 		log.Fatalf("mkdir db dir: %v", err)
@@ -135,10 +183,11 @@ func main() {
 	if multi.HasWriter() {
 		go heartbeatLoop(ctxTransport, multi, logBuf)
 		go statusLoop(ctxTransport, serialW, mute, logBuf)
+		go initialSyncLoop(ctxTransport, st, serialW, logBuf)
 	}
 
 	// 定期检查 settings.json hook 注册状态，变化时记日志（#22）
-	go hookWatchdogLoop(ctx, *wslDistro, *token, recentProbe, logBuf)
+	go hookWatchdogLoop(ctx, *wslDistro, config.TokenPath(), recentProbe, logBuf)
 	// 定期清理超时未决策的 permission（#23）
 	go permissionCleanupLoop(ctx, permReg, logBuf)
 
@@ -149,7 +198,7 @@ func main() {
 	mux.HandleFunc("/api/sessions/", handleSessionDetail(st))
 	mux.HandleFunc("/api/stats", handleStats(st))
 	mux.HandleFunc("/api/status", handleStatus(m, st))
-	mux.HandleFunc("/api/doctor", handleDoctor(*wslDistro, *token, st, recentProbe))
+	mux.HandleFunc("/api/doctor", handleDoctor(*wslDistro, config.TokenPath(), st, recentProbe))
 	mux.HandleFunc("/api/logs", handleLogs(logBuf))
 	mux.HandleFunc("/api/permission/", handlePermissionDecision(permReg, logBuf))
 	mux.HandleFunc("/api/update", handleUpdate(*token, logBuf))
@@ -665,6 +714,13 @@ func handleSerialStatus(sw *transport.SerialWriter) http.HandlerFunc {
 
 func handleSerialLog(sl *seriallog.Log) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// ?since= 走增量：只返回比该 ts 更新的行，供前端追加（不重排可视区）
+		if sinceStr := r.URL.Query().Get("since"); sinceStr != "" {
+			if since, err := strconv.ParseInt(sinceStr, 10, 64); err == nil {
+				writeJSON(w, sl.Since(since))
+				return
+			}
+		}
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 		if limit <= 0 {
 			limit = 100
@@ -834,11 +890,75 @@ func logStatus(sw *transport.SerialWriter, mute *atomic.Bool, lb *logbuf.Buffer)
 		port, connected, sent, recv, suspended, mute.Load()))
 }
 
+// initialSyncLoop 在串口每次重新连接时，下发最近 3 条 session 快照，供 ESP32 初始
+// 化内存会话表。帧间延迟 300ms，避免 UART 缓冲区溢出。
+func initialSyncLoop(ctx context.Context, st *store.Store, sw *transport.SerialWriter, lb *logbuf.Buffer) {
+	var wasConnected bool
+	for {
+		_, connected, _, _, _ := sw.Status()
+		if connected && !wasConnected {
+			time.Sleep(500 * time.Millisecond) // 等设备端就绪
+			syncSessions(ctx, st, sw, lb)
+		}
+		wasConnected = connected
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(1 * time.Second):
+		}
+	}
+}
+
+// syncSessions 查询最近 3 个 session，逐条构建 session 帧下发。
+// 帧间延迟 300ms，避免 ESP32 UART 缓冲区溢出。
+func syncSessions(ctx context.Context, st *store.Store, sw *transport.SerialWriter, lb *logbuf.Buffer) {
+	sessions, err := st.ListSessions(ctx, 3)
+	if err != nil {
+		lb.Log(logbuf.LevelWarn, fmt.Sprintf("initial-sync: list sessions failed: %v", err))
+		return
+	}
+	if len(sessions) == 0 {
+		return
+	}
+	for _, si := range sessions {
+		f := transport.Frame{
+			T:         "session",
+			Src:       "claude-code",
+			SID:       si.ID,
+			Name:      si.Title,
+			State:     "idle",
+			LastReply: si.Recap,
+			TS:        time.Now().UnixMilli(),
+		}
+		if werr := sw.Write(transport.NewLine(&f)); werr != nil {
+			lb.Log(logbuf.LevelWarn, fmt.Sprintf("initial-sync: write session %s failed: %v", si.ID, werr))
+			return
+		}
+		// 节流：300ms 帧间隔，避免炸 ESP32 UART
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(300 * time.Millisecond):
+		}
+	}
+	lb.Log(logbuf.LevelInfo, fmt.Sprintf("initial-sync: sent %d sessions", len(sessions)))
+}
+
 func envOr(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}
 	return def
+}
+
+// genToken 生成 32 字节随机 hex token。
+func genToken() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		// 极罕见（CSPNG 不可用）；退化为时间相关值
+		return hex.EncodeToString([]byte(fmt.Sprintf("%d", time.Now().UnixNano())))
+	}
+	return hex.EncodeToString(b)
 }
 
 func handleStatic() http.HandlerFunc {

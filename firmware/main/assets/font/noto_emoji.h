@@ -1,4 +1,4 @@
-/* noto_emoji.h — Noto Emoji Regular TTF embedded as C array */
+/* noto_emoji.h — Noto Emoji Regular TTF embedded as C array (declarations) */
 #ifndef NOTO_EMOJI_H
 #define NOTO_EMOJI_H
 
@@ -10,7 +10,7 @@ extern "C" {
 #endif
 
 extern const unsigned char emoji_ttf_data[];
-extern const size_t  emoji_ttf_len;
+extern const unsigned int  emoji_ttf_len;
 
 #ifdef __cplusplus
 }

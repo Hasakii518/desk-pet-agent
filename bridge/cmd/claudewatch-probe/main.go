@@ -13,9 +13,11 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"time"
 
+	"claudewatch/internal/config"
 	"claudewatch/internal/transcript"
 )
 var _ = json.Marshal
@@ -99,7 +101,7 @@ func main() {
 	io.Copy(io.Discard, resp.Body)
 }
 
-// loadAddr 优先级: CLAUDEWATCH_ADDR 环境变量 > 动态网关 IP > ~/.config/claudewatch/agent.addr > 127.0.0.1:7777
+// loadAddr 优先级: CLAUDEWATCH_ADDR 环境变量 > 动态网关 IP > <configDir>/agent.addr > 127.0.0.1:7777
 // 动态网关：每次启动 ip route show default 算，适配 Windows 重启后 vSwitch IP 变化
 func loadAddr() string {
 	if a := os.Getenv("CLAUDEWATCH_ADDR"); a != "" {
@@ -108,7 +110,7 @@ func loadAddr() string {
 	if gw := discoverGateway(); gw != "" {
 		return gw + ":7777"
 	}
-	if b, err := os.ReadFile(os.Getenv("HOME") + "/.config/claudewatch/agent.addr"); err == nil {
+	if b, err := os.ReadFile(filepath.Join(config.Dir(), "agent.addr")); err == nil {
 		s := string(bytes.TrimSpace(b))
 		if s != "" {
 			return s
@@ -165,12 +167,12 @@ func hexToIP(hex string) string {
 	return net.IP(b).String()
 }
 
-// loadToken 优先级: CLAUDEWATCH_TOKEN 环境变量 > ~/.config/claudewatch/token
+// loadToken 优先级: CLAUDEWATCH_TOKEN 环境变量 > <configDir>/token
 func loadToken() string {
 	if t := os.Getenv("CLAUDEWATCH_TOKEN"); t != "" {
 		return t
 	}
-	if b, err := os.ReadFile(os.Getenv("HOME") + "/.config/claudewatch/token"); err == nil {
+	if b, err := os.ReadFile(filepath.Join(config.Dir(), "token")); err == nil {
 		return string(bytes.TrimSpace(b))
 	}
 	return ""

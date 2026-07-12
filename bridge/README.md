@@ -8,85 +8,94 @@
 
 ## 架构
 
-```
-┌────────── WSL ──────────┐         ┌──────── Windows 本体 ────────┐
-│ Claude Code             │         │  claudewatch.exe (agent+UI)  │
-│   └─ hook → probe       │  HTTP   │   ├─ :7777 HTTP+WS           │
-│        │                │ ───────▶│   ├─ SQLite (WAL, batched)   │
-│        └─ /usr/local/   │  网关IP │   ├─ static frontend         │
-│            bin/         │         │   └─ 系统托盘 / 开机自启      │
-│            claudewatch- │         │                               │
-│            probe        │         │  浏览器: http://127.0.0.1:7777│
-└─────────────────────────┘         └───────────────────────────────┘
-```
+- **probe**：Claude Code hook 触发，单行 JSON 通过 HTTP POST 给 agent，失败静默不阻塞。
+- **agent**：HTTP+WebSocket server，批写 SQLite（WAL），实时推送事件给 UI；同时是 ESP32 的下行通道（串口/BLE）。
+- **interface**：Svelte 前端，嵌入 agent 二进制，浏览器打开即用。
 
-WSL2 NAT 模式下，probe 通过默认网关 IP（`192.168.160.1`）连 Windows agent。agent 绑 `0.0.0.0:7777` + 防火墙规则只允许 WSL 子网入站。
+agent 与 probe 的部署形态随运行环境自动适配：
 
-## 前置依赖
+| 环境 | agent | probe | 浏览器 |
+|------|-------|-------|--------|
+| **Windows 原生**（Claude Code 跑在 Windows） | `claudewatch.exe`，启动文件夹自启 | `claudewatch-probe.exe`，hooks 注册到 `%USERPROFILE%\.claude` | `http://127.0.0.1:7777` |
+| **WSL**（Claude Code 在 WSL，agent 在 Windows 宿主） | `claudewatch.exe`（Windows 宿主） | `claudewatch-probe`（WSL 内），经网关 IP 连宿主 | `http://127.0.0.1:7777`（Windows 侧） |
+| **macOS 原生** | `/usr/local/bin/claudewatch`，launchd 自启 | `/usr/local/bin/claudewatch-probe`，hooks 注册到 `~/.claude` | `http://127.0.0.1:7777` |
+| **Linux 原生** | `/usr/local/bin/claudewatch`，systemd --user 自启 | `/usr/local/bin/claudewatch-probe`，hooks 注册到 `~/.claude` | `http://127.0.0.1:7777` |
 
-**WSL 内**：
-- Go 1.23+（项目内 `env.sh` 切换，不影响全局）
-- Node.js 18+（构建前端用）
-- `jq` 或 `python3`（install.sh 合并 settings.json 用）
+安装脚本会**自动探测**上述环境，无需手动指定。配置与 token 统一放在跨平台配置目录：
 
-**Windows 本体**：
-- 无需预装 Go/Node（agent 是单二进制，前端已嵌入）
-- Windows 10/11，WSL2
+- Windows：`%APPDATA%\ClaudeWatch\`
+- macOS / Linux：`~/.config/claudewatch\`
 
-## 安装
+## 构建（发布包）
 
-### 1. WSL 内构建
+在**有 Go + Node 的机器**上交叉编译出全平台二进制（对方机器无需 Go/Node）：
 
 ```bash
-cd ~/projects/personal/claudewatch
-source ./env.sh          # 激活项目内 Go 1.23.12（可选，Makefile 已硬编码绝对路径）
-make all                 # 构建 Linux agent + probe + 前端
-make agent-windows       # 交叉编译 Windows agent (.exe)
+cd bridge
+make release     # 前端 + agent(win/mac/linux) + probe(win/mac/linux) → bin/
 ```
 
-产物在 `bin/`：`claudewatch`、`claudewatch-probe`、`claudewatch.exe`。
+产物在 `bin/`：`claudewatch.exe`、`claudewatch-linux`、`claudewatch-darwin`、
+`claudewatch-probe.exe`、`claudewatch-probe`、`claudewatch-probe-darwin`。
 
-### 2. Windows 侧安装 agent
+> Go 工具链默认 `~/.g/versions/1.23.12`，可用 `GOROOT=` / `GO=` 环境变量覆盖：
+> `make GO=/usr/local/go/bin/go release`。
 
-普通用户 PowerShell：
+把 `bin/` 连同 `install/` 目录发给对方即可（或打成 zip）。
+
+## 安装（对方机器，一键）
+
+### Windows
+
+普通用户 PowerShell 运行 `install/install.ps1`：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File \\wsl$\Ubuntu-24.04\home\<user>\projects\personal\claudewatch\install\install.ps1
+powershell -ExecutionPolicy Bypass -File install\install.ps1
+# 可选参数:
+#   -ProbeTarget windows | wsl | auto(默认，自动探测，优先 WSL)
+#   -ClaudeConfigDir "C:\Users\<user>\.claude"   # 自定义 Claude Code hooks 配置目录
 ```
 
-脚本会：
-- 部署 `claudewatch.exe` 到 `%APPDATA%\ClaudeWatch\`
-- 生成 token（crypto/rand 32 字节 hex）
-- 添加防火墙规则（**需要管理员**；非管理员会跳过并打印命令让你事后补）
-- 添加启动文件夹快捷方式（开机自启）
-- 同步 token 到 WSL `~/.config/claudewatch/token`
+脚本（**不写死任何用户名/发行版**）会：
+- 部署 `claudewatch.exe` 到 `%APPDATA%\ClaudeWatch\`，生成并持久化 token，写 `config.json`
+- 添加启动文件夹快捷方式（开机自启，参数 `--config`）
+- **自动探测** probe 落点（`auto` 模式优先 WSL，可用 `-ProbeTarget windows` 强制原生 Windows）：在 WSL 内跑 `install.sh` 装 probe，或装原生 Windows probe 并幂等合并 hooks 到 Claude Code 的 `settings.json`（默认 `%USERPROFILE%\.claude`，可用 `-ClaudeConfigDir` 指定其它路径，如 tme-claude）
 - 立即启动 agent
 
-**防火墙**（若上一步跳过）：以管理员身份打开 PowerShell，执行脚本打印的那行：
-```powershell
-New-NetFirewallRule -DisplayName 'ClaudeWatch WSL' -Direction Inbound -LocalPort 7777 -Protocol TCP -Action Allow -RemoteAddress 192.168.160.0/20 -Profile Any
-```
-
-### 3. WSL 侧安装 probe
+### macOS / Linux（及 WSL 内的 probe）
 
 ```bash
-cd ~/projects/personal/claudewatch
-./install/install.sh
+cd bridge
+./install/install.sh                 # 自动探测 Darwin / Linux / WSL
+# 可选: -c /path/to/claude-config-dir   # 自定义 Claude Code hooks 配置目录
 ```
 
-脚本会：
-- 部署 probe 到 `/usr/local/bin/claudewatch-probe`（内部按需 sudo）
-- 写 `~/.config/claudewatch/agent.addr`（自动从 `ip route` 取网关 IP）
-- 拷贝 token 到 `~/.config/claudewatch/token`
-- **增量合并** `~/.claude/settings.json`：为 9 类 hook 各追加一条 `matcher:"*"` 指向 probe，不破坏已有 hook
+- **macOS 原生**：部署 agent 到 `/usr/local/bin`，注册 launchd 自启，装 probe + hooks
+- **Linux 原生**：部署 agent 到 `/usr/local/bin`，注册 systemd --user 自启，装 probe + hooks
+- **WSL**：仅装 probe（agent 在 Windows 宿主），从 Windows 动态取 token、写 `agent.addr`（网关 IP）、合并 hooks
 
-> ⚠️ **不要用 `sudo ./install.sh`**。脚本只在写 `/usr/local/bin` 时内部调用 sudo，其余操作必须在普通用户 HOME 下。sudo 会让 `$HOME` 变成 `/root`，导致配置写错位置。
+> ⚠️ **不要用 `sudo ./install.sh`**。脚本只在写 `/usr/local/bin` 时内部调用 sudo，其余操作在普通用户 HOME 下。sudo 会让 `$HOME` 变成 `/root` 写错位置。
 
-### 4. 打开界面
+### 打开界面
 
-Windows 浏览器访问 `http://127.0.0.1:7777`。左侧 session 列表，右侧事件时间线。绿点表示 WebSocket 实时连接。
+浏览器访问 `http://127.0.0.1:7777`。左侧 session 列表，右侧事件时间线；Serial 标签页可看 ESP32 固件日志（支持上翻阅读，右上角 `follow` 可关自动跟随）。
 
-之后在 WSL 里正常用 Claude Code，所有工具调用、prompt 提交、session 生命周期事件都会实时显示。
+## 配置（`config.json`）
+
+agent 启动解析顺序：**命令行 flag(显式) > 环境变量 > config.json > 内置默认**。
+配置文件在 `%APPDATA%\ClaudeWatch\config.json`（Win）/ `~/.config/claudewatch/config.json`（Mac/Linux）。
+
+| 字段 | 默认 | 说明 |
+|------|------|------|
+| `addr` | `:7777` | 监听地址；要跨机访问用 `0.0.0.0:7777` |
+| `serialPort` | `auto` | 串口路径或 `auto`（自动扫描 `/dev/cu.usbmodem*` 等） |
+| `db` | 配置目录/`events.db` | SQLite 路径 |
+| `token` | 空 | 鉴权 token；空则由 agent 自动生成并持久化到 `token` 文件 |
+| `wslDistro` | 空 | WSL 发行版名（doctor UNC 诊断用） |
+| `ble` | `false` | 启用 BLE 传输（桩） |
+
+token 若最终为空，agent 自动生成 32 字节随机 hex 并写入配置目录的 `token` 文件，
+供 probe 共享（probe 读取同一配置文件目录下的 `token`）。
 
 ## 开发
 
@@ -120,8 +129,8 @@ claudewatch/
 ├── web/                     # //go:embed 前端产物
 ├── frontend/                # Svelte 源码 (Vite)
 ├── install/
-│   ├── install.sh           # WSL 侧
-│   └── install.ps1          # Windows 侧
+│   ├── install.sh           # macOS / Linux / WSL（自动探测）
+│   └── install.ps1          # Windows 本体（自动探测 probe 落点）
 ├── env.sh                   # 项目内激活 Go 1.23.12
 ├── .go-version
 ├── go.mod                   # go 1.23.0 + toolchain go1.23.12
@@ -130,7 +139,7 @@ claudewatch/
 
 ## 数据
 
-- DB 路径：`%APPDATA%\ClaudeWatch\events.db`（Windows agent 侧）
+- DB 路径：配置目录下的 `events.db`（Win `%APPDATA%\ClaudeWatch\` / Mac·Linux `~/.config/claudewatch\`）
 - WAL 模式，`synchronous=NORMAL`，单写连接串行
 - 批写：200 条或 200ms 刷一次
 - 保留：默认 30 天，每小时清理一次（`store.Config.Retention` 可配）
@@ -148,6 +157,19 @@ claudewatch/
 | GET | `/healthz` | 健康检查 |
 
 ## 卸载
+
+**macOS / Linux 原生**：
+```bash
+# macOS
+launchctl unload ~/Library/LaunchAgents/com.claudewatch.agent.plist
+rm ~/Library/LaunchAgents/com.claudewatch.agent.plist
+# Linux
+systemctl --user --now disable claudewatch.service
+rm ~/.config/systemd/user/claudewatch.service
+sudo rm /usr/local/bin/claudewatch /usr/local/bin/claudewatch-probe
+rm -rf ~/.config/claudewatch
+# 从 ~/.claude/settings.json 删除 claudewatch-probe 相关条目（或恢复 .bak 备份）
+```
 
 **WSL**：
 ```bash
@@ -167,7 +189,8 @@ Remove-NetFirewallRule -DisplayName 'ClaudeWatch WSL'
 
 ## 已知限制
 
-- **不支持 PreToolUse 同步拦截**：probe 是 fire-and-forget，只观测。若以后要加拦截能力，需要 probe 等待 agent 返回 decision，是另一套设计。
+- **不支持 PreToolUse 同步拦截**：probe 是 fire-and-forget，只观测。若以后要加拦截能力，需要 probe 等待 agent 返回 decision，是另一套设计（注册 PreToolUse 会让 agent 的同步审批闸门锁死 Claude Code，故默认不注册）。
 - **WSL2 NAT 模式**：probe 通过网关 IP 连 Windows agent。若 Windows 重启后 vSwitch IP 变化，install.sh 会重新计算并覆盖 `~/.config/claudewatch/agent.addr`，重跑一次即可。
 - **Mirrored 网络模式未支持**：当前假设 NAT 模式。若你切到 mirrored，`127.0.0.1` 直通，可手动改 `agent.addr` 为 `127.0.0.1:7777`。
+- **macOS 未签名**：`claudewatch-darwin` 默认 ad-hoc 未签名，首次运行可能被 Gatekeeper 拦截。开发分发可在「系统设置→隐私与安全性」允许，或用 `codesign` 自签。
 - **前端视觉风格朴素**：MVP 功能完整，没做精细设计。Svelte 源码在 `frontend/src/`，可自行改造。
