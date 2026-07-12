@@ -21,11 +21,15 @@ static lv_obj_t *s_gif;         /* lv_gif widget（11 个动画态）*/
 static lv_obj_t *s_img;         /* lv_image widget（disconnected 回退）*/
 static lv_obj_t *s_active;      /* 当前活跃的 pet widget（gif 或 img）*/
 static lv_obj_t *s_bubble;
-static lv_obj_t *s_bubble_title;
+static lv_obj_t *s_bubble_title;     /* flex row: bell icon + 标题文字 */
+static lv_obj_t *s_bubble_icon;
+static lv_obj_t *s_bubble_title_text;
 static lv_obj_t *s_bubble_body;
 static lv_obj_t *s_status_lbl;
 static lv_obj_t *s_modal;          /* 点击气泡放大的全屏浮层 */
-static lv_obj_t *s_modal_title;
+static lv_obj_t *s_modal_title;     /* flex row: bell icon + 标题文字 */
+static lv_obj_t *s_modal_icon;
+static lv_obj_t *s_modal_title_text;
 static lv_obj_t *s_modal_body;
 
 /* 前置声明 */
@@ -109,8 +113,20 @@ lv_obj_t *ui_pet_create(lv_obj_t *parent)
     lv_obj_set_flex_flow(s_bubble, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(s_bubble, SP_XS, 0);
 
-    s_bubble_title = lv_label_create(s_bubble);
-    lv_obj_set_style_text_font(s_bubble_title,
+    /* 标题行：bell 图标(montserrat) + 标题文字(CJK) */
+    s_bubble_title = lv_obj_create(s_bubble);
+    lv_obj_remove_style_all(s_bubble_title);
+    lv_obj_set_size(s_bubble_title, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(s_bubble_title, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(s_bubble_title, SP_SM, 0);
+    lv_obj_clear_flag(s_bubble_title, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_bubble_icon = lv_label_create(s_bubble_title);
+    lv_label_set_text(s_bubble_icon, LV_SYMBOL_BELL);
+    lv_obj_set_style_text_font(s_bubble_icon, &lv_font_montserrat_24, 0);
+
+    s_bubble_title_text = lv_label_create(s_bubble_title);
+    lv_obj_set_style_text_font(s_bubble_title_text,
                     bsp_body_font(), 0);
 
     s_bubble_body = lv_label_create(s_bubble);
@@ -153,11 +169,23 @@ lv_obj_t *ui_pet_create(lv_obj_t *parent)
     lv_obj_set_style_radius(card, RAD_CARD_L, 0);
     lv_obj_set_style_pad_all(card, SP_MD, 0);
 
-    s_modal_title = lv_label_create(card);
-    lv_obj_set_style_text_font(s_modal_title,
+    /* 弹窗标题：bell 图标(montserrat) + 标题文字(CJK) */
+    s_modal_title = lv_obj_create(card);
+    lv_obj_remove_style_all(s_modal_title);
+    lv_obj_set_size(s_modal_title, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(s_modal_title, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(s_modal_title, SP_SM, 0);
+    lv_obj_clear_flag(s_modal_title, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_modal_icon = lv_label_create(s_modal_title);
+    lv_label_set_text(s_modal_icon, LV_SYMBOL_BELL);
+    lv_obj_set_style_text_font(s_modal_icon, &lv_font_montserrat_24, 0);
+
+    s_modal_title_text = lv_label_create(s_modal_title);
+    lv_obj_set_style_text_font(s_modal_title_text,
                     bsp_body_font(), 0);
-    lv_label_set_long_mode(s_modal_title, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(s_modal_title, 340);
+    lv_label_set_long_mode(s_modal_title_text, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(s_modal_title_text, 340);
 
     s_modal_body = lv_label_create(card);
     lv_font_t *modal_font = bsp_cjk_font(28);
@@ -211,11 +239,11 @@ void ui_pet_refresh(void)
         const char *notif_text = session_store_notif_text();
 
         lv_obj_clear_flag(s_bubble, LV_OBJ_FLAG_HIDDEN);
-        lv_label_set_text_fmt(s_bubble_title, "%s  %s",
-                              LV_SYMBOL_BELL,
-                              notif_title ? notif_title : "Claude");
-        lv_obj_set_style_text_color(s_bubble_title,
-                                    ui_source_color(notif_src), 0);
+        lv_color_t c = ui_source_color(notif_src);
+        lv_obj_set_style_text_color(s_bubble_icon, c, 0);
+        lv_label_set_text(s_bubble_title_text,
+                          notif_title ? notif_title : "Claude");
+        lv_obj_set_style_text_color(s_bubble_title_text, c, 0);
         lv_label_set_text(s_bubble_body,
                           notif_text ? notif_text : "");
     } else {
@@ -244,10 +272,11 @@ static void bubble_click_cb(lv_event_t *e)
     agent_source_t src = session_store_notif_source();
     const char *text  = session_store_notif_text();
 
-    lv_label_set_text_fmt(s_modal_title, "%s  %s",
-                          LV_SYMBOL_BELL,
-                          title ? title : "Claude");
-    lv_obj_set_style_text_color(s_modal_title, ui_source_color(src), 0);
+    lv_color_t mc = ui_source_color(src);
+    lv_obj_set_style_text_color(s_modal_icon, mc, 0);
+    lv_label_set_text(s_modal_title_text,
+                      title ? title : "Claude");
+    lv_obj_set_style_text_color(s_modal_title_text, mc, 0);
 
     lv_label_set_text(s_modal_body, text ? text : "");
     lv_obj_clear_flag(s_modal, LV_OBJ_FLAG_HIDDEN);

@@ -222,7 +222,7 @@ void app_main(void)
 
     if (bsp_lvgl_lock(-1)) {
         serial_protocol_init();
-        session_store_seed_mock();   /* 初始数据：bridge 连接前可见 3 条会话 */
+        /* session_store_seed_mock(); -- 已关闭 mock 初始数据 */
         build_ui();
         bsp_lvgl_unlock();
     }
