@@ -71,6 +71,7 @@ static bool              s_was_pressed;
 static int16_t           s_last_x, s_last_y;
 
 void app_reset_idle(void);
+static void dyn_fps_cb(lv_timer_t *t);
 
 static void gesture_poll_cb(lv_timer_t *t)
 {
@@ -146,6 +147,8 @@ void app_reset_idle(void)
         s_display_sleep = false;
         if (!s_boot_off) bsp_display_set_on(true);
     }
+    /* 立即将刷新率切到活跃档（避免等待下个 2s 定时器触发）*/
+    dyn_fps_cb(NULL);
 }
 
 static void sleep_tick_cb(lv_timer_t *t)

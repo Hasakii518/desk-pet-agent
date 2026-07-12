@@ -83,6 +83,7 @@ static void serial_poll_cb(lv_timer_t *t)
             s_disconnected = false;
             pet_state_set_disconnected(false);
             ui_pet_refresh();
+            app_reset_idle();   /* 重连唤醒屏幕 */
             ESP_LOGI(TAG, "Host reconnected");
         }
     }
