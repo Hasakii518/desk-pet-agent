@@ -1,48 +1,65 @@
 # Agent 联动方案（WorkBuddy + Claude Code）
 
-PC 端 `bridge` 把各 Agent 翻译成统一 `AgentEvent`，经 `transport` 下发到 ESP32；
-设备只负责显示与回传指令。UI 永远只认 `AgentEvent`，不关心来源。
+PC 端 `bridge` 把各 Agent 翻译成统一下行帧，经 `transport` 下发到 ESP32；
+设备只负责显示与回传指令。UI 永远只认下行帧，不关心来源。
 
-## 0. 统一事件契约（AgentEvent，下行 PC→ESP32）
+## 0. 统一事件契约（下行 PC→ESP32，每行一条 JSON）
+
+通信模型：**通知化推送 + 设备本地替换**。Agent 以「通知」形式下发 clawd 桌宠的
+状态切换、通知弹窗、会话详细内容；设备按 sessionId 维护内存，收到快照整条覆盖，
+**无需每次刷新回告 Agent**。完整定义见 `shared/protocol.md`。
 
 ```ts
-interface AgentEvent {
-  id: string;
-  source: 'workbuddy' | 'claude-code' | 'system';
-  sessionId: string;
-  sessionName: string;
-  type: 'status' | 'message' | 'plan' | 'next-step' | 'next-session' | 'permission';
-  state?: PetState;     // 桌宠表情状态（不含 disconnected，该态由设备本地推导）
-  text?: string;        // 消息 / 回复内容
-  nextStep?: string;    // Claude Code 返回的下一步动作
-  sessionIndex?: number;// 会话在「时间序列表」中的位置（可选，便于设备翻页）
-  timestamp: number;
+// 状态切换 + 通知弹窗（高频，每次 hook 一帧）
+interface NotifyFrame {
+  t: 'notify';
+  src: 'workbuddy' | 'claude-code' | 'system';
+  sid: string;            // sessionId，设备据此归位
+  name?: string;          // 会话名（生命周期事件才带）
+  state?: PetState;       // 桌宠表情状态（不含 disconnected，该态由设备本地推导）
+  title?: string;         // 弹窗标题
+  text?: string;          // 弹窗正文（超长截断加 …）
+  ts: number;
 }
+
+// 会话详细内容快照（低频，按 sid 整条覆盖设备内存）
+interface SessionFrame {
+  t: 'session';
+  src: Source;
+  sid: string;            // 覆盖键
+  name?: string;
+  state?: PetState;
+  lastReply?: string;     // 最新回复片段
+  nextStep?: string;      // 下一步动作，缺省=等用户输入
+  history?: { u: boolean; x: string }[]; // 最近 ≤6 条，每条 ≤80 字
+  ts: number;
+}
+
+// 心跳（5s，链路保活）
+interface HeartbeatFrame { t: 'heartbeat'; ts: number }
 ```
 
-## 1. Claude Code（已验证可行，参考 clawd-on-desk）
+设备处理约定：
+- `notify` → `pet_state_set(state, src)` 切表情；有 `title`/`text` 则显示为当前通知气泡。
+- `session` → 按 `sid` **整条覆盖**内存会话记录，不回告 Agent。
+- `heartbeat` → 仅刷新「最近收帧时间」，≥15s 无帧则切 `disconnected`。
 
-### 1.1 钩子注入
-`bridge/src/connectors/hooks/install-hooks.js` 向 Claude Code `settings.json` 写入命令钩子，
-事件触发时调用 `pet-hook.js`：
+## 1. Claude Code（已落地：claudewatch probe + Go bridge）
 
-| 钩子事件 | 发送的 AgentEvent |
-|---|---|
-| `SessionStart` | status: thinking |
-| `PreToolUse` | status: building |
-| `PostToolUse` | message（工具结果摘要） |
-| `UserPromptSubmit` | status: typing |
-| `Stop` | status: idle / happy |
-| `Notification` | message / notification |
+### 1.1 数据通路
+Claude Code `settings.json` 注册 hook → 触发 `claudewatch-probe`（Go 二进制）→
+probe 从 stdin 读 hook payload，`SessionStart`/`Stop` 时本地解析 transcript 提取
+`aiTitle`/`recap`，`POST` 到 bridge 的 `/ingest`（PreToolUse 走 `/permission` 同步审批）。
+bridge 落库 SQLite，同时广播到 `store.Hub`。
 
-### 1.2 钩子脚本
-`pet-hook.js` 读取钩子环境变量（`CLAUDE_SESSION_ID` 等），组装 `AgentEvent`，
-`POST` 到 `bridge` 本地端口（由 `event-bus.ts` 接收）。
+### 1.2 下发翻译
+`bridge/internal/transport/encoder.go` 的 `FramesFor(ev)` 把每个 hook 事件翻译成下行帧
+（映射表见 `shared/protocol.md` §4）：`notify`（状态切换 + 弹窗）+ 生命周期事件额外一条
+`session` 快照。`fanoutLoop` 订阅 Hub，逐帧经 `transport.Multi`（串口 / BLE）下发。
 
-### 1.3 「下一步」解析
-`claude-code.ts` 用 `fs.watch` 监听 `~/.claude/projects/**/*.jsonl` 增量，
-解析最后一条 assistant 消息提取 `tool_use` / plan 步骤 → 发 `next-step` 事件
-（详见 `SPEC-SESSION-SCREEN.md` 第 4 节）。
+### 1.3 「下一步」与 history
+`session` 帧的 `lastReply` 复用 probe 提取的 transcript `recap`，`name` 复用 `aiTitle`。
+`nextStep` / `history` 暂未从 transcript 增量解析（预留；详见 `SPEC-SESSION-SCREEN.md` §4）。
 
 ## 2. WorkBuddy（集成点待定，两种路径）
 
@@ -51,7 +68,7 @@ Connector 预留两种接入，二选一落地：
 
 ### 路径 A：本地日志监听（推荐先期）
 - 约定 WorkBuddy 把会话事件写到本机固定路径 JSONL（如 `~/.workbuddy/sessions/*.jsonl`）。
-- `workbuddy.ts` `fs.watch` 监听，翻译为 `AgentEvent`，逻辑与 Claude Code 对称。
+- `workbuddy.ts` `fs.watch` 监听，翻译为下行帧，逻辑与 Claude Code 对称。
 - 前提：需确认/约定日志路径与格式；路径不存在时静默降级。
 
 ### 路径 B：WorkBuddy 桥接（后期）

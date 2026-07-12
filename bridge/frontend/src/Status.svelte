@@ -3,8 +3,20 @@
   export let logsActive
   export let onToggleDoctor
   export let doctorActive
+  export let onToggleSerial = () => {}
+  export let serialActive = false
 
   let status = null
+  let serialStatus = { connected: false, suspended: false, tx_frames: 0, rx_lines: 0 }
+
+  async function loadSerialStatus() {
+    try {
+      const r = await fetch('/api/serial/status')
+      serialStatus = await r.json()
+    } catch (e) {}
+  }
+  loadSerialStatus()
+  setInterval(loadSerialStatus, 3000)
   let ws = null
 
   async function load() {
@@ -71,6 +83,13 @@
   </button>
   <button class="logs-btn" class:active={logsActive} on:click={onToggleLogs} title="toggle logs viewer">
     logs
+  </button>
+  <span class="ser-dot" style="color:{serialStatus.suspended ? '#888' : serialStatus.connected ? 'var(--green)' : 'var(--red)'}"
+        title="serial {serialStatus.connected ? 'connected' : serialStatus.suspended ? 'suspended' : 'disconnected'}">
+    ●
+  </span>
+  <button class="logs-btn ser-btn" class:active={serialActive} on:click={onToggleSerial} title="serial port log">
+    serial
   </button>
 </div>
 

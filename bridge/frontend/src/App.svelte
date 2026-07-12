@@ -4,6 +4,7 @@
   import Status from './Status.svelte'
   import LogsView from './LogsView.svelte'
   import DoctorView from './DoctorView.svelte'
+  import SerialTab from './SerialTab.svelte'
   import PermissionBubble from './PermissionBubble.svelte'
 
   let selected = null
@@ -61,6 +62,7 @@
   function onSelect(s) { selected = s; view = 'session' }
   function onToggleLogs() { view = view === 'logs' ? 'session' : 'logs' }
   function onToggleDoctor() { view = view === 'doctor' ? 'session' : 'doctor' }
+  function onToggleSerial() { view = view === 'serial' ? 'session' : 'serial' }
 </script>
 
 <div class="app">
@@ -69,7 +71,7 @@
       <h1><span class="live-dot" class:hidden={!liveCount}></span>ClaudeWatch</h1>
       <span class="live-label">{liveCount ? 'live' : '...'}</span>
     </div>
-    <Status {onToggleLogs} logsActive={view === 'logs'} {onToggleDoctor} doctorActive={view === 'doctor'} />
+    <Status {onToggleLogs} logsActive={view === 'logs'} {onToggleDoctor} doctorActive={view === 'doctor'} {onToggleSerial} serialActive={view === 'serial'} />
     <SessionsView {selected} onSelect={onSelect} />
   </aside>
   <main class="detail">
@@ -77,6 +79,8 @@
       <LogsView />
     {:else if view === 'doctor'}
       <DoctorView />
+    {:else if view === 'serial'}
+      <SerialTab />
     {:else if selected}
       <DetailView session={selected} />
     {:else}

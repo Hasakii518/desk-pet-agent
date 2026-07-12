@@ -1,56 +1,56 @@
-/* mock_data.c — 静态 mock 数据（含中文，验证 CJK 字体渲染） */
+/* mock_data.c — 静态 mock 数据 */
 #include "mock_data.h"
 
 /* ---------------- 会话 1：Claude Code ---------------- */
 static const mock_msg_t hist_a[] = {
-    { true,  "用户: 帮我重构登录模块" },
-    { false, "Agent: 已生成测试骨架" },
-    { false, "Agent: 修改了 3 个文件，正在跑测试" },
-    { true,  "用户: 再加个限流逻辑" },
-    { false, "Agent: 中间件已添加，2 个测试失败" },
+    { true,  "User: refactor the login module" },
+    { false, "Agent: generated test skeleton" },
+    { false, "Agent: edited 3 files, running tests" },
+    { true,  "User: also add rate limiting" },
+    { false, "Agent: added middleware, 2 tests failing" },
 };
 
 /* ---------------- 会话 2：WorkBuddy ---------------- */
 static const mock_msg_t hist_b[] = {
-    { true,  "用户: 总结今天的站会" },
-    { false, "Agent: 发现 3 个阻塞项" },
-    { false, "Agent: 已生成摘要，等待审核" },
+    { true,  "User: summarize today's standup" },
+    { false, "Agent: 3 blockers found" },
+    { false, "Agent: drafted summary, awaiting review" },
 };
 
 /* ---------------- 会话 3：Claude Code ---------------- */
 static const mock_msg_t hist_c[] = {
-    { true,  "用户: 修复 CI 不稳定问题" },
-    { false, "Agent: 定位到 setup 中的竞态条件" },
-    { false, "Agent: 修复完成，全部通过 ✓" },
+    { true,  "User: fix the flaky CI job" },
+    { false, "Agent: identified race in setup" },
+    { false, "Agent: done, all green" },
 };
 
 static const mock_session_t s_sessions[] = {
     {
-        .name = "登录模块重构",
+        .name = "auth-refactor",
         .source = SRC_CLAUDE_CODE,
         .status = PET_BUILDING,
         .time = "12:04",
-        .last_reply = "修改了 3 个文件，正在跑测试…",
-        .next_step = "运行 npm test",
+        .last_reply = "Edited 3 files, running tests...",
+        .next_step = "Run npm test",
         .history = hist_a,
         .history_len = sizeof(hist_a) / sizeof(hist_a[0]),
     },
     {
-        .name = "每日站会总结",
+        .name = "daily-standup",
         .source = SRC_WORKBUDDY,
         .status = PET_WAITING,
         .time = "11:38",
-        .last_reply = "已生成会议摘要，等待你确认",
-        .next_step = "审核草稿",
+        .last_reply = "Drafted summary, awaiting your review",
+        .next_step = "Review draft",
         .history = hist_b,
         .history_len = sizeof(hist_b) / sizeof(hist_b[0]),
     },
     {
-        .name = "CI 稳定性修复",
+        .name = "ci-flaky-fix",
         .source = SRC_CLAUDE_CODE,
         .status = PET_HAPPY,
         .time = "10:15",
-        .last_reply = "修复完成，所有检查通过",
+        .last_reply = "Done, all checks green",
         .next_step = NULL,  /* 等用户输入 */
         .history = hist_c,
         .history_len = sizeof(hist_c) / sizeof(hist_c[0]),
@@ -68,9 +68,9 @@ static const mock_hardware_t s_hw = {
 };
 
 static const mock_notification_t s_notif = {
-    .session_name = "登录模块重构",
+    .session_name = "auth-refactor",
     .source = SRC_CLAUDE_CODE,
-    .text = "修改了 3 个文件，正在跑测试…",
+    .text = "Edited 3 files, running tests...",
 };
 
 const mock_session_t *mock_sessions(void)      { return s_sessions; }

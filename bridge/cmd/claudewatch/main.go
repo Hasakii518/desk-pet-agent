@@ -11,6 +11,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
@@ -24,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -34,7 +36,9 @@ import (
 	"claudewatch/internal/metrics"
 	"claudewatch/internal/permission"
 	"claudewatch/internal/protocol"
+	"claudewatch/internal/seriallog"
 	"claudewatch/internal/store"
+	"claudewatch/internal/transport"
 	"claudewatch/internal/update"
 	"claudewatch/web"
 )
@@ -75,6 +79,8 @@ func main() {
 	token := flag.String("token", os.Getenv("CLAUDEWATCH_TOKEN"), "auth token (default: $CLAUDEWATCH_TOKEN)")
 	dbPath := flag.String("db", "", "SQLite path (default: ~/.local/share/claudewatch/events.db)")
 	wslDistro := flag.String("wsl-distro", os.Getenv("WSL_DISTRO_NAME"), "WSL distro name (for UNC path access, e.g. Ubuntu-24.04)")
+	serialPort := flag.String("serial-port", envOr("CLAUDEWATCH_SERIAL_PORT", "auto"), "serial port path or 'auto' (env CLAUDEWATCH_SERIAL_PORT)")
+	enableBLE := flag.Bool("ble", false, "enable BLE transport (stub, frames dropped)")
 	flag.Parse()
 
 	if *dbPath == "" {
@@ -101,6 +107,36 @@ func main() {
 	recentProbe := &recentProbeState{}
 	permReg := permission.NewRegistry()
 
+	// ESP32 下行通道：串口（+ 可选 BLE 桩）。订阅 store Hub，把 hook 事件
+	// 翻译成 notify/session 帧下发，并按 5s 心跳保活。详见 shared/protocol.md。
+	// 串口同时读 RX：解析上行 Command + 排空设备日志（防 ESP_LOG 反压）。
+	mute := new(atomic.Bool) // 设备 mute_toggle 上行后置位，暂停 notification 下发
+
+	// 串口日志环形缓冲：记录所有 TX 帧 + RX 行，供 web UI 查看
+	serLog := seriallog.New(800)
+	devLine := func(line string) { handleDeviceLine(line, logBuf, mute, serLog) }
+	onSerialTx := func(frame []byte) {
+		// 去末尾 \n，存原始 JSON
+		if len(frame) > 0 && frame[len(frame)-1] == '\n' {
+			frame = frame[:len(frame)-1]
+		}
+		serLog.Add("tx", string(frame))
+	}
+
+	var writers []transport.Writer
+	serialW := transport.NewSerial(*serialPort, devLine, onSerialTx)
+	writers = append(writers, serialW)
+	if *enableBLE {
+		writers = append(writers, transport.NewBLE())
+	}
+	multi := transport.NewMulti(writers...)
+	ctxTransport, cancelTransport := context.WithCancel(ctx)
+	go fanoutLoop(ctxTransport, st, multi, logBuf, mute)
+	if multi.HasWriter() {
+		go heartbeatLoop(ctxTransport, multi, logBuf)
+		go statusLoop(ctxTransport, serialW, mute, logBuf)
+	}
+
 	// 定期检查 settings.json hook 注册状态，变化时记日志（#22）
 	go hookWatchdogLoop(ctx, *wslDistro, *token, recentProbe, logBuf)
 	// 定期清理超时未决策的 permission（#23）
@@ -122,6 +158,12 @@ func main() {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok"))
 	})
+	// 串口控制端点
+	mux.HandleFunc("/api/serial/status", handleSerialStatus(serialW))
+	mux.HandleFunc("/api/serial/log", handleSerialLog(serLog))
+	mux.HandleFunc("/api/serial/send", handleSerialSend(multi, serLog, logBuf))
+	mux.HandleFunc("/api/serial/disconnect", handleSerialDisconnect(serialW, logBuf))
+	mux.HandleFunc("/api/serial/connect", handleSerialConnect(serialW, logBuf))
 	mux.HandleFunc("/", handleStatic())
 
 	srv := &http.Server{
@@ -145,6 +187,10 @@ func main() {
 	shutCtx, shutCancel := context.WithTimeout(ctx, 3*time.Second)
 	defer shutCancel()
 	srv.Shutdown(shutCtx)
+	cancelTransport()
+	if err := multi.Close(); err != nil {
+		log.Printf("transport close: %v", err)
+	}
 }
 
 func handleIngest(st *store.Store, token string, m *metrics.Registry, lb *logbuf.Buffer, rp *recentProbeState) http.HandlerFunc {
@@ -571,6 +617,228 @@ func stripSuffix(s, suffix string) (string, bool) {
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(v)
+}
+
+// ---- 串口状态 / 日志 / 断连控制 / 调试下发 ----
+
+// handleSerialSend 接受任意 JSON 文本，补 \n 后走 multi.Write 下发到设备。
+// 用于 web UI 调试工具手动注入协议帧。
+func handleSerialSend(multi *transport.Multi, sl *seriallog.Log, lb *logbuf.Buffer) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		raw, err := io.ReadAll(io.LimitReader(r.Body, 2048))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if len(raw) == 0 {
+			http.Error(w, "empty body", http.StatusBadRequest)
+			return
+		}
+		line := append(bytes.TrimSpace(raw), '\n')
+		sl.Add("tx", string(bytes.TrimSuffix(line, []byte{'\n'})))
+		if err := multi.Write(line); err != nil {
+			lb.Log(logbuf.LevelWarn, "serial send failed: "+err.Error())
+			http.Error(w, "write failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		lb.Log(logbuf.LevelDebug, "serial send: "+string(bytes.TrimSuffix(line, []byte{'\n'})))
+		writeJSON(w, map[string]string{"ok": "1"})
+	}
+}
+
+func handleSerialStatus(sw *transport.SerialWriter) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		port, connected, sent, recv, suspended := sw.Status()
+		writeJSON(w, map[string]any{
+			"port":      port,
+			"connected": connected,
+			"tx_frames": sent,
+			"rx_lines":  recv,
+			"suspended": suspended,
+		})
+	}
+}
+
+func handleSerialLog(sl *seriallog.Log) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+		if limit <= 0 {
+			limit = 100
+		}
+		writeJSON(w, sl.Recent(limit))
+	}
+}
+
+func handleSerialDisconnect(sw *transport.SerialWriter, lb *logbuf.Buffer) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		sw.Disconnect()
+		lb.Log(logbuf.LevelInfo, "serial: user disconnected (COM port released for flashing)")
+		writeJSON(w, map[string]string{"ok": "1"})
+	}
+}
+
+func handleSerialConnect(sw *transport.SerialWriter, lb *logbuf.Buffer) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		sw.Connect()
+		lb.Log(logbuf.LevelInfo, "serial: user reconnected")
+		writeJSON(w, map[string]string{"ok": "1"})
+	}
+}
+
+// fanoutLoop 订阅 store Hub，把 hook 事件 / 权限请求翻译成下行帧写到 transport。
+// 写失败限流记日志（30s 一次），绝不阻塞 ingest / Hub 广播。
+// mute 置位时跳过 notification 态帧（设备 mute_toggle 上行触发，见 handleDeviceLine）。
+func fanoutLoop(ctx context.Context, st *store.Store, multi *transport.Multi, lb *logbuf.Buffer, mute *atomic.Bool) {
+	ch := st.Hub().Subscribe()
+	defer st.Hub().Unsubscribe(ch)
+
+	var lastErrLog time.Time
+	tryWrite := func(line []byte) {
+		if len(line) == 0 {
+			return
+		}
+		if err := multi.Write(line); err != nil {
+			if time.Since(lastErrLog) > 30*time.Second {
+				lb.Log(logbuf.LevelWarn, "transport: write failed: "+err.Error())
+				lastErrLog = time.Now()
+			}
+		}
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
+			switch v := msg.(type) {
+			case protocol.Event:
+				for _, f := range transport.FramesFor(v) {
+					// 勿扰：跳过 notification 类弹窗（permission 等仍放行）
+					if f.T == "notify" && f.State == "notification" && mute.Load() {
+						continue
+					}
+					tryWrite(transport.NewLine(&f))
+				}
+			case *permission.Permission:
+				// 权限请求 → 桌宠切 permission 态 + 弹窗显示工具名
+				f := transport.Frame{
+					T:     "notify",
+					Src:   "claude-code",
+					SID:   v.SessionID,
+					State: "permission",
+					Title: v.ToolName,
+					TS:    v.CreatedAt,
+				}
+				tryWrite(transport.NewLine(&f))
+			}
+		}
+	}
+}
+
+// handleDeviceLine 处理串口 RX 的一行：先按上行 Command 解析，命中则执行
+// （mute_toggle 置位、voice_* 记日志）；否则视为设备 ESP_LOG 行，按行首级别
+// 映射后写入 log buffer（供 web UI / ws/logs 查看，替代 idf.py monitor）。
+func handleDeviceLine(line string, lb *logbuf.Buffer, mute *atomic.Bool, serLog *seriallog.Log) {
+	serLog.Add("rx", line) // 所有上行行（Command / 设备日志）记入串口日志
+	var cmd struct {
+		Cmd   string `json:"cmd"`
+		Text  string `json:"text,omitempty"`
+		Value bool   `json:"value,omitempty"`
+	}
+	if json.Unmarshal([]byte(line), &cmd) == nil && cmd.Cmd != "" {
+		switch cmd.Cmd {
+		case "mute_toggle":
+			mute.Store(cmd.Value)
+			lb.Log(logbuf.LevelInfo, fmt.Sprintf("device: mute_toggle -> %v", cmd.Value))
+		case "voice_start":
+			lb.Log(logbuf.LevelInfo, "device: voice_start (STT not wired yet)")
+		case "voice_text":
+			lb.Log(logbuf.LevelInfo, "device: voice_text: "+cmd.Text)
+		case "session_next", "session_prev", "session_scroll", "focus_session":
+			// 翻页 / 滚动 / 聚焦为设备本地内存操作，bridge 无需处理
+			lb.Log(logbuf.LevelDebug, "device: "+cmd.Cmd+" (local)")
+		default:
+			lb.Log(logbuf.LevelDebug, "device: unknown cmd "+cmd.Cmd)
+		}
+		return
+	}
+
+	// 非 Command → 设备日志。ESP_LOG 行格式 "L (ts) tag: msg"，首字母即级别。
+	lvl := logbuf.LevelDebug
+	if len(line) > 0 {
+		switch line[0] {
+		case 'E':
+			lvl = logbuf.LevelError
+		case 'W':
+			lvl = logbuf.LevelWarn
+		case 'I':
+			lvl = logbuf.LevelInfo
+		}
+	}
+	lb.Log(lvl, "device: "+line)
+}
+
+// heartbeatLoop 每 5s 下发一条心跳，供设备推导链路活性（≥15s 无帧 → disconnected）。
+func heartbeatLoop(ctx context.Context, multi *transport.Multi, lb *logbuf.Buffer) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			f := transport.Frame{T: "heartbeat", TS: time.Now().UnixMilli()}
+			if err := multi.Write(transport.NewLine(&f)); err != nil {
+				lb.Log(logbuf.LevelWarn, "transport: heartbeat write failed: "+err.Error())
+			}
+		}
+	}
+}
+
+// statusLoop 每 30s 打一条串口链路诊断日志：端口 / 是否连上 / 累计下发帧数 / mute。
+// 用来回答"bridge 到底连没连、帧有没有在发"——offline 排查的第一手信号。
+func statusLoop(ctx context.Context, sw *transport.SerialWriter, mute *atomic.Bool, lb *logbuf.Buffer) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	// 启动后先打一次，不用等 30s
+	logStatus(sw, mute, lb)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			logStatus(sw, mute, lb)
+		}
+	}
+}
+
+func logStatus(sw *transport.SerialWriter, mute *atomic.Bool, lb *logbuf.Buffer) {
+	port, connected, sent, recv, suspended := sw.Status()
+	lb.Log(logbuf.LevelInfo, fmt.Sprintf(
+		"transport: serial port=%s connected=%v tx=%d rx=%d suspended=%v mute=%v",
+		port, connected, sent, recv, suspended, mute.Load()))
+}
+
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }
 
 func handleStatic() http.HandlerFunc {
