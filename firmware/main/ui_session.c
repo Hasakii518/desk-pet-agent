@@ -126,10 +126,18 @@ lv_obj_t *ui_session_create_page(lv_obj_t *parent,
         lv_obj_set_style_pad_hor(pill, SP_MD, 0);
         lv_obj_set_style_pad_ver(pill, SP_SM, 0);
         lv_obj_clear_flag(pill, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_t *pl = lv_label_create(pill);
-        lv_label_set_text_fmt(pl, LV_SYMBOL_PLAY "  %s", ss->next_step);
-        lv_obj_set_style_text_font(pl, SESS_FONT_BODY, 0);
-        lv_obj_set_style_text_color(pl, COLOR_VOID, 0);
+        lv_obj_set_flex_flow(pill, LV_FLEX_FLOW_ROW);
+        lv_obj_set_style_pad_column(pill, SP_XS, 0);
+
+        lv_obj_t *pl_ico = lv_label_create(pill);
+        lv_label_set_text(pl_ico, LV_SYMBOL_PLAY);
+        lv_obj_set_style_text_font(pl_ico, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_color(pl_ico, COLOR_VOID, 0);
+
+        lv_obj_t *pl_text = lv_label_create(pill);
+        lv_label_set_text(pl_text, ss->next_step);
+        lv_obj_set_style_text_font(pl_text, SESS_FONT_BODY, 0);
+        lv_obj_set_style_text_color(pl_text, COLOR_VOID, 0);
     } else {
         body_label(content, LV_SYMBOL_OK "  Waiting for your input", &lv_font_montserrat_24, COLOR_MIST);
     }
