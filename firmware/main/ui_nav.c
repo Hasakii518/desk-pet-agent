@@ -7,6 +7,7 @@
 #include "ui_negative.h"
 #include "ui_session.h"
 #include "ui_control.h"
+#include "ui_connect.h"
 
 #define PAGE_W SCREEN_SIZE
 
@@ -83,6 +84,7 @@ void ui_nav_control_hide(void)
 {
     if (!s_control_visible) return;
     s_control_visible = false;
+    ui_connect_close();   /* 收起控制中心时同时关掉连接详情浮窗 */
     /* 从 y=0 滑回 y=-SCREEN_SIZE（物理向上收起），动画结束后隐藏 */
     lv_anim_t a;
     lv_anim_init(&a);

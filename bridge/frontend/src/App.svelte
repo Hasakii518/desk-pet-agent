@@ -5,6 +5,7 @@
   import LogsView from './LogsView.svelte'
   import DoctorView from './DoctorView.svelte'
   import SerialTab from './SerialTab.svelte'
+  import DeviceTab from './DeviceTab.svelte'
   import PermissionBubble from './PermissionBubble.svelte'
 
   let selected = null
@@ -86,6 +87,7 @@
   function onToggleLogs() { view = view === 'logs' ? 'session' : 'logs' }
   function onToggleDoctor() { view = view === 'doctor' ? 'session' : 'doctor' }
   function onToggleSerial() { view = view === 'serial' ? 'session' : 'serial' }
+  function onToggleDevice() { view = view === 'device' ? 'session' : 'device' }
 </script>
 
 <div class="app" style:grid-template-columns={sidebarCollapsed ? '32px 1fr' : sidebarWidth + 'px 1fr'}>
@@ -99,7 +101,7 @@
       <h1><span class="live-dot" class:hidden={!liveCount}></span>ClaudeWatch</h1>
       <span class="live-label">{liveCount ? 'live' : '...'}</span>
     </div>
-    <Status {onToggleLogs} logsActive={view === 'logs'} {onToggleDoctor} doctorActive={view === 'doctor'} {onToggleSerial} serialActive={view === 'serial'} />
+    <Status {onToggleLogs} logsActive={view === 'logs'} {onToggleDoctor} doctorActive={view === 'doctor'} {onToggleSerial} serialActive={view === 'serial'} {onToggleDevice} deviceActive={view === 'device'} />
     <SessionsView {selected} onSelect={onSelect} />
     <div class="sidebar-resize-handle" on:mousedown={startResize} on:dblclick={resetWidth} title="drag to resize, double-click to reset"></div>
     {/if}
@@ -111,6 +113,8 @@
       <DoctorView />
     {:else if view === 'serial'}
       <SerialTab />
+    {:else if view === 'device'}
+      <DeviceTab />
     {:else if selected}
       <DetailView session={selected} />
     {:else}

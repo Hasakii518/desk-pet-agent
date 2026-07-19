@@ -24,6 +24,8 @@
 #include "ui_control.h"
 #include "serial_protocol.h"
 #include "session_store.h"
+#include "bt_stack.h"
+#include "wifi_prov.h"
 
 static const char *TAG = "app";
 
@@ -224,9 +226,11 @@ void app_main(void)
 
     bsp_init();
     boot_key_init();
+    wifi_prov_init();   /* NVS/netif/event-loop/WiFi STA（失败仅记日志，不影响其余）*/
 
     if (bsp_lvgl_lock(-1)) {
         serial_protocol_init();
+        bt_stack_init();   /* BLE：NUS 数据通道 + WiFi 配网 GATT */
         /* session_store_seed_mock(); -- 已关闭 mock 初始数据 */
         build_ui();
         bsp_lvgl_unlock();

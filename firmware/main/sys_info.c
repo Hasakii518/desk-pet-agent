@@ -1,5 +1,6 @@
 /* sys_info.c — 实时系统信息查询（芯片、内存、电池 ADC、WiFi）*/
 #include "sys_info.h"
+#include "wifi_prov.h"
 #include "esp_chip_info.h"
 #include "esp_heap_caps.h"
 #include "esp_adc/adc_cali.h"
@@ -138,5 +139,5 @@ bool sys_info_battery_charging(void)
 
 const char *sys_info_wifi_ssid(void)
 {
-    return "--";   /* TODO: esp_wifi 未初始化 */
+    return wifi_prov_ssid();
 }

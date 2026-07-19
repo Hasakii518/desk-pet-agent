@@ -22,7 +22,8 @@ type Config struct {
 	DB         string `json:"db"`         // SQLite 路径；为空使用默认（配置目录/events.db）
 	SerialPort string `json:"serialPort"` // 串口路径或 "auto"
 	WSLDistro  string `json:"wslDistro"`  // WSL 发行版名（doctor UNC 访问用）
-	BLE        bool   `json:"ble"`        // 是否启用 BLE 传输（桩）
+	BLE        bool   `json:"ble"`        // 是否启用 BLE 传输
+	BLEName    string `json:"bleName"`    // BLE 设备名前缀（默认 "ClawdPet-"）
 }
 
 // Dir 返回跨平台配置目录。

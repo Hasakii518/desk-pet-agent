@@ -5,6 +5,8 @@
   export let doctorActive
   export let onToggleSerial = () => {}
   export let serialActive = false
+  export let onToggleDevice = () => {}
+  export let deviceActive = false
 
   let status = null
   let serialStatus = { connected: false, suspended: false, tx_frames: 0, rx_lines: 0 }
@@ -78,6 +80,9 @@
     <span class="k">db</span>
     <span class="v">{fmtSize(status?.db_size_bytes)}</span>
   </div>
+  <button class="logs-btn" class:active={deviceActive} on:click={onToggleDevice} title="device connection (BLE / WiFi)">
+    device
+  </button>
   <button class="logs-btn" class:active={doctorActive} on:click={onToggleDoctor} title="toggle diagnostics">
     doctor
   </button>

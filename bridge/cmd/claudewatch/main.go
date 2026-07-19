@@ -76,7 +76,8 @@ func main() {
 	dbPath := flag.String("db", "", "SQLite path (default: config dir/events.db)")
 	wslDistro := flag.String("wsl-distro", os.Getenv("WSL_DISTRO_NAME"), "WSL distro name (for UNC path access)")
 	serialPort := flag.String("serial-port", envOr("CLAUDEWATCH_SERIAL_PORT", "auto"), "serial port path or 'auto' (env CLAUDEWATCH_SERIAL_PORT)")
-	enableBLE := flag.Bool("ble", false, "enable BLE transport (stub, frames dropped)")
+	enableBLE := flag.Bool("ble", false, "enable BLE transport (ESP32 GATT NUS)")
+	bleName := flag.String("ble-name", envOr("CLAUDEWATCH_BLE_NAME", "ClawdPet-"), "BLE device name prefix to scan for")
 	flag.Parse()
 
 	// 记录被显式传入的 flag，用于「flag 显式 > 其它」
@@ -109,6 +110,7 @@ func main() {
 	if !setFlags["ble"] {
 		*enableBLE = fileCfg.BLE
 	}
+	*bleName = resolveStr("ble-name", *bleName, os.Getenv("CLAUDEWATCH_BLE_NAME"), fileCfg.BLEName, "ClawdPet-")
 
 	// token 解析: flag > env > 配置文件 > token 文件 > 自动生成并持久化
 	*token = resolveStr("token", *token, os.Getenv("CLAUDEWATCH_TOKEN"), fileCfg.Token, "")
@@ -174,8 +176,11 @@ func main() {
 	var writers []transport.Writer
 	serialW := transport.NewSerial(*serialPort, devLine, onSerialTx)
 	writers = append(writers, serialW)
+	var bleW *transport.BLEWriter
 	if *enableBLE {
-		writers = append(writers, transport.NewBLE())
+		// BLE 与串口共用上行行处理（Command 解析）与 TX 帧日志
+		bleW = transport.NewBLE(*bleName, devLine, onSerialTx)
+		writers = append(writers, bleW)
 	}
 	multi := transport.NewMulti(writers...)
 	ctxTransport, cancelTransport := context.WithCancel(ctx)
@@ -183,7 +188,7 @@ func main() {
 	if multi.HasWriter() {
 		go heartbeatLoop(ctxTransport, multi, logBuf)
 		go statusLoop(ctxTransport, serialW, mute, logBuf)
-		go initialSyncLoop(ctxTransport, st, serialW, logBuf)
+		go initialSyncLoop(ctxTransport, st, serialW, bleW, logBuf)
 	}
 
 	// 定期检查 settings.json hook 注册状态，变化时记日志（#22）
@@ -215,6 +220,12 @@ func main() {
 	mux.HandleFunc("/api/serial/send", handleSerialSend(multi, serLog, logBuf))
 	mux.HandleFunc("/api/serial/disconnect", handleSerialDisconnect(serialW, logBuf))
 	mux.HandleFunc("/api/serial/connect", handleSerialConnect(serialW, logBuf))
+	// BLE 控制端点（bleW 为 nil 时统一返回 503）
+	mux.HandleFunc("/api/ble/status", handleBLEStatus(bleW))
+	mux.HandleFunc("/api/ble/scan", handleBLEScan(bleW, logBuf))
+	mux.HandleFunc("/api/ble/connect", handleBLEConnect(bleW, logBuf))
+	mux.HandleFunc("/api/ble/disconnect", handleBLEDisconnect(bleW, logBuf))
+	mux.HandleFunc("/api/wifi/provision", handleWiFiProvision(bleW, logBuf))
 	mux.HandleFunc("/", handleStatic())
 
 	srv := &http.Server{
@@ -892,17 +903,28 @@ func logStatus(sw *transport.SerialWriter, mute *atomic.Bool, lb *logbuf.Buffer)
 		port, connected, sent, recv, suspended, mute.Load()))
 }
 
-// initialSyncLoop 在串口每次重新连接时，下发最近 3 条 session 快照，供 ESP32 初始
-// 化内存会话表。帧间延迟 300ms，避免 UART 缓冲区溢出。
-func initialSyncLoop(ctx context.Context, st *store.Store, sw *transport.SerialWriter, lb *logbuf.Buffer) {
-	var wasConnected bool
+// initialSyncLoop 在串口或 BLE 每次重新连接时，经刚连上的通道下发最近 3 条
+// session 快照，供 ESP32 初始化内存会话表。帧间延迟 300ms，避免缓冲区溢出。
+func initialSyncLoop(ctx context.Context, st *store.Store, sw *transport.SerialWriter, bw *transport.BLEWriter, lb *logbuf.Buffer) {
+	var wasSerial, wasBLE bool
 	for {
-		_, connected, _, _, _ := sw.Status()
-		if connected && !wasConnected {
+		_, serialOK, _, _, _ := sw.Status()
+		if serialOK && !wasSerial {
 			time.Sleep(500 * time.Millisecond) // 等设备端就绪
 			syncSessions(ctx, st, sw, lb)
 		}
-		wasConnected = connected
+		wasSerial = serialOK
+
+		bleOK := false
+		if bw != nil {
+			bleOK = bw.Status().Connected
+			if bleOK && !wasBLE {
+				time.Sleep(500 * time.Millisecond)
+				syncSessions(ctx, st, bw, lb)
+			}
+		}
+		wasBLE = bleOK
+
 		select {
 		case <-ctx.Done():
 			return
@@ -912,8 +934,8 @@ func initialSyncLoop(ctx context.Context, st *store.Store, sw *transport.SerialW
 }
 
 // syncSessions 查询最近 3 个 session，逐条构建 session 帧下发。
-// 帧间延迟 300ms，避免 ESP32 UART 缓冲区溢出。
-func syncSessions(ctx context.Context, st *store.Store, sw *transport.SerialWriter, lb *logbuf.Buffer) {
+// 帧间延迟 300ms，避免 ESP32 缓冲区溢出。
+func syncSessions(ctx context.Context, st *store.Store, w transport.Writer, lb *logbuf.Buffer) {
 	sessions, err := st.ListSessions(ctx, 3)
 	if err != nil {
 		lb.Log(logbuf.LevelWarn, fmt.Sprintf("initial-sync: list sessions failed: %v", err))
@@ -932,7 +954,7 @@ func syncSessions(ctx context.Context, st *store.Store, sw *transport.SerialWrit
 			LastReply: transport.Truncate(si.Recap, transport.MaxText),
 			TS:        time.Now().UnixMilli(),
 		}
-		if werr := sw.Write(transport.NewLine(&f)); werr != nil {
+		if werr := w.Write(transport.NewLine(&f)); werr != nil {
 			lb.Log(logbuf.LevelWarn, fmt.Sprintf("initial-sync: write session %s failed: %v", si.ID, werr))
 			return
 		}

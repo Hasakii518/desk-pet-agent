@@ -8,6 +8,9 @@
 #include "ui_control.h"
 #include "ui_common.h"
 #include "bsp.h"
+#include "bt_stack.h"
+#include "wifi_prov.h"
+#include "ui_connect.h"
 #include <string.h>
 
 /* 每个 tile 的状态类型 */
@@ -289,7 +292,30 @@ static void open_tile_submenu(tile_t *t)
 
 bool ui_control_has_submenu(void)
 {
-    return s_submenu != NULL;
+    return s_submenu != NULL || ui_connect_visible();
+}
+
+/* ============================ 真实状态同步 ============================
+ * WiFi tile 亮 = 已连上 AP；蓝牙 tile 亮 = bridge 已连上 BLE。 */
+static void status_sync_cb(lv_timer_t *t)
+{
+    (void)t;
+    bool wifi_on = wifi_prov_connected();
+    bool ble_on  = bt_stack_connected();
+    if (s_tiles[0].on != wifi_on) {
+        s_tiles[0].on = wifi_on;
+        tile_render(&s_tiles[0]);
+    }
+    if (s_tiles[1].on != ble_on) {
+        s_tiles[1].on = ble_on;
+        tile_render(&s_tiles[1]);
+    }
+}
+
+/* WiFi / 蓝牙 tile：点按或长按都打开连接详情页 */
+static bool is_connect_tile(const tile_t *t)
+{
+    return t == &s_tiles[0] || t == &s_tiles[1];
 }
 
 /* ============================ tile 事件 ============================ */
@@ -300,11 +326,19 @@ static void tile_event_cb(lv_event_t *e)
 
     if (code == LV_EVENT_LONG_PRESSED) {
         t->lp = true;
-        open_tile_submenu(t);
+        if (is_connect_tile(t)) {
+            ui_connect_open(s_root);
+        } else {
+            open_tile_submenu(t);
+        }
         return;
     }
     if (code == LV_EVENT_CLICKED) {
         if (t->lp) { t->lp = false; return; }   /* 长按已开菜单，忽略本次 CLICKED */
+        if (is_connect_tile(t)) {
+            ui_connect_open(s_root);
+            return;
+        }
         switch (t->kind) {
         case TILE_TOGGLE: t->on = !t->on; break;
         case TILE_CYCLE: {
@@ -415,6 +449,9 @@ lv_obj_t *ui_control_create(lv_obj_t *parent)
 
     for (int i = 0; i < 7; i++)
         make_tile(grid, &s_tiles[i]);
+
+    /* WiFi/蓝牙 tile 状态接真实链路（1s 轮询）*/
+    lv_timer_create(status_sync_cb, 1000, NULL);
 
     ui_hint(root, "Tap toggle  Long-press: menu  Swipe up: home");
     return root;

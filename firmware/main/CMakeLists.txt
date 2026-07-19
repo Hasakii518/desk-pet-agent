@@ -14,7 +14,11 @@ idf_component_register(
         "ui_session.c"
         "ui_control.c"
         "session_store.c"
+        "frame_parse.c"
         "serial_protocol.c"
+        "bt_stack.c"
+        "wifi_prov.c"
+        "ui_connect.c"
         "assets/font/noto_emoji.c"
         "assets/font/cjk_font.c"
     INCLUDE_DIRS
@@ -24,4 +28,10 @@ idf_component_register(
     REQUIRES
         json
         esp_adc
+        bt
+        esp_wifi
+        esp_event
+        esp_netif
+        nvs_flash
+        driver
 )

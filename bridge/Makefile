@@ -36,11 +36,13 @@ agent-windows: frontend
 agent-linux: frontend
 	GOOS=linux GOARCH=amd64 $(GO) build -o bin/claudewatch-linux ./cmd/claudewatch
 
+# 注意：BLE 传输（tinygo-org/bluetooth）的 darwin 实现依赖 cgo/CoreBluetooth，
+# 以下两个 darwin 目标只能在 macOS 本机构建（CGO_ENABLED=1），Linux 交叉编译会失败。
 agent-darwin: frontend
-	GOOS=darwin GOARCH=amd64 $(GO) build -o bin/claudewatch-darwin ./cmd/claudewatch
+	GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 $(GO) build -o bin/claudewatch-darwin ./cmd/claudewatch
 
 agent-darwin-arm64: frontend
-	GOOS=darwin GOARCH=arm64 $(GO) build -o bin/claudewatch-darwin-arm64 ./cmd/claudewatch
+	GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 $(GO) build -o bin/claudewatch-darwin-arm64 ./cmd/claudewatch
 
 # ---- probe：跨平台（跑在 Claude Code 所在平台）----
 probe:

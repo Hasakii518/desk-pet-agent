@@ -13,10 +13,27 @@ ESP32（设备）与 PC `bridge` 之间的通信。帧格式：**每行一条 JS
 | 通道 | 说明 | bridge 实现 |
 |---|---|---|
 | `serial`（默认） | USB-CDC 虚拟串口，插上即用，零配置 | `transport.SerialWriter`，`os.OpenFile` 直写，自动扫描 `/dev/ttyACM*` / `COMn` |
-| `ble` | 蓝牙串口服务（GATT UART） | `transport.BLEWriter`（桩，后续接 BlueZ/WinRT） |
-| `wifi` | 局域网 TCP，设备做 client 连 PC | 预留 |
+| `ble` | BLE GATT（Nordic UART Service），PC/手机均可作中心 | `transport.BLEWriter`（tinygo-org/bluetooth，跨平台） |
+| `wifi` | 局域网 TCP，设备做 client 连 PC | 预留（当前 WiFi 仅作 BLE 配网连通验证） |
 
 > 无论哪种通道，payload 都是下面的 JSON 行。多通道可同时启用，`bridge` 用 `transport.Multi` 扇出，单通道出错不影响其他。
+
+### 1.1 BLE 传输细节
+
+- 设备作 GATT server，广播名 `ClawdPet-XXXX`（XXXX=MAC 后 4 位）。bridge 按名字前缀扫描、选信号最强者连接，断线自动重扫重连。
+- **分片**：下行帧可能超过单包 ATT 负载，bridge 按 (MTU-3) 切片写 NUS RX；设备端按 `\n` 重组行（协议不变）。连接后协商 MTU 247，协商失败 bridge 自动降级 MTU 23。
+- **上行**：设备经 NUS TX notify 回传 Command 行，bridge 同样按 `\n` 重组。
+
+GATT 布局（两端唯一事实源，改动需同步 `bridge/internal/transport/ble.go` 与 `firmware/main/bt_stack.c`）：
+
+| Service | Characteristic | 属性 | 用途 |
+|---|---|---|---|
+| NUS `6E400001-…E50E24DCCA9E` | RX `6E400002-…` | write/write-no-rsp | bridge→设备：数据帧分片 |
+| | TX `6E400003-…` | notify | 设备→bridge：Command 行 |
+| 配网 `4A1A0000-…` | SSID `4A1A0001-…` | write | UTF-8 SSID ≤32B |
+| | Password `4A1A0002-…` | write | 密码 ≤64B |
+| | Commit `4A1A0003-…` | write | 任意值触发连接 |
+| | Status `4A1A0004-…` | read/notify | `{"s":"idle\|connecting\|ok\|fail","ip":…,"rssi":…,"err":…}` |
 
 ## 2. 下行：PC → ESP32
 

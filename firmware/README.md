@@ -2,6 +2,18 @@
 
 适用于 ESP32-S3 + 466×466 圆形 AMOLED + LVGL 9 的可交互原型。
 
+## BLE + WiFi（2026-07-19 新增）
+
+- **BLE 数据通道**：NimBLE GATT server，广播名 `ClawdPet-XXXX`（MAC 后 4 位）。
+  NUS（Nordic UART Service）收发协议帧，与串口共用同一套行 JSON 解析（`frame_parse.c`），
+  两通道可同时工作。bridge 侧 `claudewatch --ble` 自动扫描连接、断线重连。
+- **WiFi 配网**：自定义 GATT Service（SSID/Password/Commit/Status），从 bridge
+  Web UI「device」页下发凭据；连接成功存 NVS，下次上电自动重连。
+- **控制中心**：WiFi/蓝牙 tile 显示真实链路状态，点按打开「连接详情」浮窗。
+- 构建注意：本次新增了 BLE/WiFi 配置，**先删 `firmware/sdkconfig`**（或
+  `idf.py reconfigure` 后按提示确认）再构建，否则 sdkconfig.defaults 里的
+  `CONFIG_BT_NIMBLE_*` 不会生效。
+
 ## 功能
 
 - 四屏完整 UI：主页桌宠、负一屏、会话页、控制中心。
